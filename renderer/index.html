@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MLM Manager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Top bar -->
+    <div class="topbar">
+      <span class="app-title">MLM Manager</span>
+      <span class="status-text" id="statusText">Not logged in</span>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" data-tab="tasks">Tasks</div>
+      <div class="tab" data-tab="profiles">Profiles</div>
+      <div class="tab" data-tab="settings">Settings</div>
+      <div class="tab" data-tab="discord">Discord</div>
+      <div class="tab" data-tab="positioner">Positioner</div>
+      <div class="tab" data-tab="about">About</div>
+    </div>
+
+    <!-- TAB 1: Tasks -->
+    <div class="tab-content active" id="tab-tasks">
+      <div class="list-header">
+        <span>Tasks</span>
+        <button class="btn btn-sm" id="refreshTasksBtn">Refresh</button>
+      </div>
+      <div class="list-container" id="taskList">
+        <div class="empty-msg">Login first to load tasks</div>
+      </div>
+      <div class="action-bar">
+        <button class="btn" id="taskDetailBtn" disabled>Detail</button>
+        <button class="btn btn-primary" id="taskWorkBtn" disabled>Work</button>
+      </div>
+      <div class="info-text" id="taskInfo"></div>
+    </div>
+
+    <!-- TAB 2: Profiles -->
+    <div class="tab-content" id="tab-profiles">
+      <div class="list-header">
+        <span>Profiles <span id="runningCount">(Running: 0)</span></span>
+        <div class="header-actions">
+          <input type="number" id="profileAmount" value="5" min="1" max="100" class="input-sm" title="Number of profiles to fetch">
+          <button class="btn btn-sm" id="getProfilesBtn">Get</button>
+        </div>
+      </div>
+      <div class="list-container" id="profileList">
+        <div class="empty-msg">Select a task first</div>
+      </div>
+
+      <div class="profile-controls">
+        <div class="control-row">
+          <button class="btn btn-sm" id="openProfileBtn">Open</button>
+          <button class="btn btn-sm" id="showProfileBtn">Show</button>
+          <button class="btn btn-sm" id="closeProfileBtn">Close</button>
+          <button class="btn btn-sm" id="closeAllBtn">Close All</button>
+        </div>
+        <div class="control-row">
+          <button class="btn btn-sm" id="minimizeBtn">Minimize</button>
+          <button class="btn btn-sm" id="minimizeAllBtn">Min All</button>
+          <button class="btn btn-sm" id="showAllBtn">Show All</button>
+          <button class="btn btn-sm" id="refreshAllBtn">Refresh All</button>
+        </div>
+      </div>
+
+      <div class="nav-controls">
+        <button class="btn nav-btn" id="navBackBtn">&lt;&lt;&lt;</button>
+        <button class="btn nav-btn" id="navTopBtn">TOP</button>
+        <button class="btn nav-btn" id="navFwdBtn">&gt;&gt;&gt;</button>
+      </div>
+
+      <div class="group-controls">
+        <button class="btn btn-sm" id="cancelProfileBtn">Cancel</button>
+        <button class="btn btn-sm btn-green" id="goodBtn">Good</button>
+        <button class="btn btn-sm btn-red" id="badBtn">Bad</button>
+        <button class="btn btn-sm btn-yellow" id="otherBtn">Other</button>
+      </div>
+
+      <div class="stats-bar">
+        <div class="stat"><span class="stat-label">Available</span><span class="stat-value" id="statAvailable">—</span></div>
+        <div class="stat"><span class="stat-label">Done</span><span class="stat-value" id="statDone">—</span></div>
+        <div class="stat"><span class="stat-label">Pulled</span><span class="stat-value" id="statPulled">—</span></div>
+        <button class="btn btn-sm" id="refreshStatsBtn">Refresh</button>
+      </div>
+    </div>
+
+    <!-- TAB 3: Settings -->
+    <div class="tab-content" id="tab-settings">
+      <div class="section-title">Login</div>
+      <div class="form-group">
+        <div class="form-row">
+          <label>Email</label>
+          <input type="text" id="loginEmail" class="input" placeholder="Email">
+        </div>
+        <div class="form-row">
+          <label>Password</label>
+          <input type="password" id="loginPassword" class="input" placeholder="Password">
+        </div>
+        <button class="btn btn-primary" id="loginBtn">Login</button>
+        <div class="status-msg" id="loginStatus"></div>
+      </div>
+
+      <div class="section-title">Hotkeys</div>
+      <div class="form-group">
+        <div class="form-row">
+          <label>Forward</label>
+          <input type="text" id="hkForward" class="input" placeholder="e.g. CommandOrControl+Shift+Right">
+        </div>
+        <div class="form-row">
+          <label>Backward</label>
+          <input type="text" id="hkBackward" class="input" placeholder="e.g. CommandOrControl+Shift+Left">
+        </div>
+        <div class="form-row">
+          <label>Top</label>
+          <input type="text" id="hkTop" class="input" placeholder="e.g. CommandOrControl+Shift+Up">
+        </div>
+        <div class="form-row">
+          <label>Sort by Tab</label>
+          <input type="text" id="hkSortTab" class="input">
+        </div>
+        <div class="form-row">
+          <label>Sort by Profile</label>
+          <input type="text" id="hkSortProfile" class="input">
+        </div>
+        <button class="btn" id="saveHotkeysBtn">Save Hotkeys</button>
+      </div>
+
+      <div class="section-title">Options</div>
+      <div class="form-group">
+        <label class="checkbox-label"><input type="checkbox" id="autoSortingCheck"> Auto column sorting</label>
+      </div>
+
+      <div class="section-title">Server</div>
+      <div class="form-group">
+        <div class="form-row">
+          <label>Server URL</label>
+          <input type="text" id="serverUrl" class="input" placeholder="http://3.131.54.37:3000">
+        </div>
+        <div class="form-row">
+          <label>Launcher URL</label>
+          <input type="text" id="launcherUrl" class="input" placeholder="https://launcher.mlx.yt:45001">
+        </div>
+        <button class="btn" id="saveServerBtn">Save Server Settings</button>
+      </div>
+    </div>
+
+    <!-- TAB 4: Discord -->
+    <div class="tab-content" id="tab-discord">
+      <div class="section-title">Screenshot & Send</div>
+      <div class="form-group">
+        <div class="control-row" style="justify-content:center;gap:12px;">
+          <button class="btn btn-primary" id="sendQueBtn" style="flex:1;">Send to QUE</button>
+          <button class="btn btn-primary" id="sendProdBtn" style="flex:1;">Send to PROD</button>
+        </div>
+        <div class="status-msg" id="discordStatus"></div>
+      </div>
+
+      <div class="section-title">Discord Settings</div>
+      <div class="form-group">
+        <div class="form-row">
+          <label>Your Name</label>
+          <input type="text" id="discordUsername" class="input" placeholder="Your display name">
+        </div>
+        <div class="form-row">
+          <label>QUE Webhook</label>
+          <input type="text" id="discordWebhookQue" class="input" placeholder="https://discord.com/api/webhooks/...">
+        </div>
+        <div class="form-row">
+          <label>PROD Webhook</label>
+          <input type="text" id="discordWebhookProd" class="input" placeholder="https://discord.com/api/webhooks/...">
+        </div>
+        <div class="form-row">
+          <label>Sheet ID</label>
+          <input type="text" id="googleSheetId" class="input" placeholder="Google Sheet ID (optional)">
+        </div>
+        <button class="btn" id="saveDiscordBtn">Save Discord Settings</button>
+      </div>
+    </div>
+
+    <!-- TAB 5: Positioner -->
+    <div class="tab-content" id="tab-positioner">
+      <div class="section-title">Window Size</div>
+      <div class="form-group">
+        <div class="control-row">
+          <div class="form-row compact"><label>Width</label><input type="number" id="posWidth" class="input-sm" value="400"></div>
+          <div class="form-row compact"><label>Height</label><input type="number" id="posHeight" class="input-sm" value="600"></div>
+        </div>
+      </div>
+
+      <div class="section-title">Grid Layout</div>
+      <div class="form-group">
+        <div class="control-row">
+          <div class="form-row compact"><label>Cols</label><input type="number" id="posCols" class="input-sm" value="0" title="0 = auto"></div>
+          <div class="form-row compact"><label>Rows</label><input type="number" id="posRows" class="input-sm" value="0" title="0 = auto"></div>
+        </div>
+        <div class="control-row">
+          <div class="form-row compact"><label>H Gap</label><input type="number" id="posHgap" class="input-sm" value="10"></div>
+          <div class="form-row compact"><label>V Gap</label><input type="number" id="posVgap" class="input-sm" value="10"></div>
+        </div>
+        <button class="btn btn-primary" id="positionBtn" style="width:100%;margin-top:8px;">Position Windows</button>
+      </div>
+
+      <div class="section-title">Zoom</div>
+      <div class="form-group">
+        <div class="control-row">
+          <input type="number" id="posZoom" class="input-sm" value="100" min="25" max="500" style="flex:1;">
+          <span style="color:rgba(255,255,255,0.4);font-size:12px;">%</span>
+          <button class="btn btn-sm" id="applyZoomBtn">Apply</button>
+        </div>
+      </div>
+
+      <div class="section-title">Open URL</div>
+      <div class="form-group">
+        <div class="control-row">
+          <input type="text" id="posUrl" class="input" placeholder="https://..." style="flex:1;">
+          <button class="btn btn-sm" id="openUrlBtn">Open</button>
+        </div>
+      </div>
+
+      <div class="status-msg" id="positionerStatus"></div>
+      <button class="btn" id="savePositionerBtn" style="width:100%;margin-top:8px;">Save Settings</button>
+    </div>
+
+    <!-- TAB 6: About -->
+    <div class="tab-content" id="tab-about">
+      <div style="text-align:center;padding:40px 20px;">
+        <div style="font-size:32px;font-weight:800;color:#e94560;margin-bottom:8px;">MLM Manager</div>
+        <div style="font-size:14px;color:rgba(255,255,255,0.5);margin-bottom:24px;">Cross-platform Edition v1.0</div>
+        <div style="font-size:13px;color:rgba(255,255,255,0.4);line-height:1.8;">
+          Multilogin Browser Manager<br>
+          Task Management &amp; Profile Control<br>
+          Window Positioning &amp; Discord Integration<br><br>
+          Works on Windows &amp; macOS<br><br>
+          <span style="color:rgba(255,255,255,0.2);">Nickets, LLC</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

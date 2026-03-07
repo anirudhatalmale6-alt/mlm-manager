@@ -1,0 +1,36 @@
+{
+  "name": "mlm-manager",
+  "version": "1.0.0",
+  "description": "Multilogin Manager - Cross-platform",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build-win": "electron-builder --win --publish never",
+    "build-mac": "electron-builder --mac --publish never",
+    "build-all": "electron-builder --win --mac --publish never"
+  },
+  "build": {
+    "appId": "com.nickets.mlm-manager",
+    "productName": "MLM Manager",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "renderer/**/*", "assets/**/*"],
+    "win": {
+      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "icon": "assets/icon.png"
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["universal"] }],
+      "icon": "assets/icon.png",
+      "category": "public.app-category.utilities"
+    },
+    "dmg": { "artifactName": "MLM-Manager.dmg" },
+    "portable": { "artifactName": "MLM-Manager.exe" }
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "node-fetch": "^2.7.0"
+  }
+}
