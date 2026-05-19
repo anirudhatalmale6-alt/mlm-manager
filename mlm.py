@@ -634,9 +634,182 @@ def write_distribte_config(filepath, email, password, enabled=True):
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(content)
+        _patch_autologin_js(os.path.dirname(filepath), email, password)
         return True
     except Exception:
         return False
+
+
+def _patch_autologin_js(js_dir, email, password):
+    """Write improved autologin.js with direct API fallback."""
+    autologin_path = os.path.join(js_dir, 'autologin.js')
+    if not os.path.isfile(autologin_path):
+        return
+    content = r"""// Distribte Auto Login Script - Patched by MLM
+(function() {
+  if (typeof AUTOLOGIN_CONFIG === 'undefined' || !AUTOLOGIN_CONFIG.enabled) return;
+  if (AUTOLOGIN_CONFIG.email === "YOUR_EMAIL_HERE") return;
+  console.log('[AutoLogin] Starting...');
+
+  const isInTab = window.location.href.includes('chrome-extension://') && (!!window.opener || new URLSearchParams(window.location.search).has('autoclose') || new URLSearchParams(window.location.search).has('src'));
+
+  function closeTab() {
+    if (isInTab) setTimeout(() => window.close(), 5000);
+  }
+
+  function setVal(input, value) {
+    var nset = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    nset.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+    // Vue 3 compositionend trick
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: value }));
+  }
+
+  function checkAndLogout() {
+    var bodyText = document.body.innerText || '';
+    var m = bodyText.match(/logged in as\s+([^\s]+@[^\s]+)/i);
+    if (m) {
+      if (m[1].toLowerCase().trim() === AUTOLOGIN_CONFIG.email.toLowerCase().trim()) {
+        closeTab();
+        return 'correct_account';
+      }
+      var buttons = document.querySelectorAll('button');
+      for (var b of buttons) {
+        var t = b.textContent.trim().toUpperCase();
+        if (t === 'LOGOUT' || t === 'LOG OUT') { b.click(); return true; }
+      }
+    }
+    return false;
+  }
+
+  function doDirectApiLogin() {
+    console.log('[AutoLogin] Trying direct API login...');
+    fetch('https://api.distribteportal.com/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: AUTOLOGIN_CONFIG.email, password: AUTOLOGIN_CONFIG.password })
+    }).then(function(r) {
+      if (r.ok) return r.json();
+      throw new Error('HTTP ' + r.status);
+    }).then(function(data) {
+      console.log('[AutoLogin] API login success');
+      if ((data.token || data.access_token) && typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.set({
+          auth_token: data.token || data.access_token,
+          user: data.user || { email: AUTOLOGIN_CONFIG.email }
+        });
+      }
+      closeTab();
+      // Reload popup to show logged-in state
+      setTimeout(function() { location.reload(); }, 1500);
+    }).catch(function(e) {
+      console.log('[AutoLogin] API login failed:', e);
+    });
+  }
+
+  function tryAutoLogin() {
+    var lr = checkAndLogout();
+    if (lr === 'correct_account') return true;
+
+    var emailInput = document.querySelector('input[type="email"]')
+      || document.querySelector('input[placeholder*="Email" i]')
+      || document.querySelector('input[placeholder*="mail" i]');
+    if (!emailInput) {
+      var textInputs = document.querySelectorAll('input[type="text"]');
+      for (var inp of textInputs) {
+        if (!inp.value || (inp.placeholder && inp.placeholder.toLowerCase().includes('email'))) {
+          emailInput = inp; break;
+        }
+      }
+    }
+    var passwordInput = document.querySelector('input[type="password"]');
+
+    // Find login button - broader search
+    var allClickable = document.querySelectorAll('button, [type="submit"], [role="button"], a.btn, .btn');
+    var loginBtn = null;
+    for (var el of allClickable) {
+      var txt = (el.textContent || el.innerText || '').trim().toUpperCase();
+      if (txt === 'LOGIN' || txt === 'LOG IN' || txt === 'SIGN IN' || txt === 'SUBMIT' || txt === 'ENTER' || txt === 'INICIAR') {
+        loginBtn = el; break;
+      }
+    }
+    // Last resort: find first non-logout button
+    if (!loginBtn && emailInput && passwordInput) {
+      var btns = document.querySelectorAll('button[type="submit"], form button');
+      if (btns.length > 0) loginBtn = btns[0];
+    }
+
+    if (emailInput && passwordInput) {
+      console.log('[AutoLogin] Form found, filling...');
+      emailInput.focus();
+      setVal(emailInput, AUTOLOGIN_CONFIG.email);
+
+      setTimeout(function() {
+        passwordInput.focus();
+        setVal(passwordInput, AUTOLOGIN_CONFIG.password);
+
+        setTimeout(function() {
+          if (loginBtn) {
+            console.log('[AutoLogin] Clicking:', loginBtn.textContent.trim());
+            loginBtn.removeAttribute('disabled');
+            loginBtn.classList.remove('disabled');
+            loginBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            setTimeout(function() {
+              loginBtn.click();
+              // Try form submit
+              var form = emailInput.closest('form') || passwordInput.closest('form');
+              if (form) {
+                setTimeout(function() {
+                  console.log('[AutoLogin] Submitting form...');
+                  form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                  try { form.submit(); } catch(e) {}
+                }, 300);
+              }
+              // Direct API fallback after 3 seconds
+              setTimeout(function() {
+                var bodyText = document.body.innerText || '';
+                if (!bodyText.match(/logged in as/i)) {
+                  doDirectApiLogin();
+                } else {
+                  closeTab();
+                }
+              }, 3000);
+            }, 200);
+          } else {
+            console.log('[AutoLogin] No button found, trying API...');
+            doDirectApiLogin();
+          }
+        }, 500);
+      }, 300);
+      return true;
+    }
+
+    return false;
+  }
+
+  console.log('[AutoLogin] Waiting for Vue mount...');
+  setTimeout(function() {
+    if (tryAutoLogin()) return;
+    var attempts = 0;
+    var iv = setInterval(function() {
+      attempts++;
+      if (tryAutoLogin() || attempts >= 30) {
+        clearInterval(iv);
+        if (attempts >= 30) doDirectApiLogin();
+      }
+    }, 500);
+  }, 2000);
+})();
+"""
+    try:
+        with open(autologin_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+    except Exception:
+        pass
 
 
 # ─── Discord Integration ─────────────────────────────────────────────────────
@@ -2698,6 +2871,7 @@ class MLMApp:
     def _distribte_auto_trigger(self):
         """Auto-open Distribte popup in new MLX browsers via Win32 + CDP."""
         time.sleep(8)
+        retry_queue = {}  # pid -> retry_count
         while self.running:
             try:
                 email = self.cfg.get('DISTRIBTE', 'Email', fallback='')
@@ -2707,19 +2881,31 @@ class MLMApp:
 
                 mlx_pids = {p for p, v in self.mlxpid_cache.items() if v}
                 self.dist_triggered_pids -= self.dist_triggered_pids - mlx_pids
+                # Remove stale retries
+                for pid in list(retry_queue):
+                    if pid not in mlx_pids:
+                        del retry_queue[pid]
+
                 new_pids = mlx_pids - self.dist_triggered_pids
-                if not new_pids:
+                pids_to_process = list(new_pids) + [p for p, c in retry_queue.items() if c < 3]
+                if not pids_to_process:
                     time.sleep(3)
                     continue
 
-                for pid in new_pids:
-                    self.dist_triggered_pids.add(pid)
-                    time.sleep(3)
+                for pid in pids_to_process:
+                    time.sleep(4)
                     try:
-                        self._trigger_distribte_for_pid(pid)
+                        ok = self._trigger_distribte_for_pid(pid)
+                        if ok:
+                            self.dist_triggered_pids.add(pid)
+                            retry_queue.pop(pid, None)
+                        elif pid not in self.dist_triggered_pids:
+                            retry_queue[pid] = retry_queue.get(pid, 0) + 1
+                            self._log(f'[Dist] PID {pid}: will retry ({retry_queue[pid]}/3)')
                     except Exception as e:
                         self._log(f'[Dist] PID {pid} trigger error: {e}')
-                    time.sleep(1)
+                        self.dist_triggered_pids.add(pid)
+                    time.sleep(2)
 
             except Exception as e:
                 self._log(f'[Dist] Monitor error: {e}')
@@ -2731,11 +2917,13 @@ class MLMApp:
         if port:
             ok = self._trigger_distribte_cdp(port, pid)
             if ok:
-                return
+                return True
 
         hwnd = self._find_hwnd_for_pid(pid)
         if hwnd:
-            self._trigger_distribte_keyboard(hwnd, pid)
+            return self._trigger_distribte_keyboard(hwnd, pid)
+        self._log(f'[Dist] PID {pid}: no debug port and no window handle found')
+        return False
 
     def _find_hwnd_for_pid(self, target_pid):
         """Find the main browser window handle for a PID."""
@@ -2749,39 +2937,46 @@ class MLMApp:
         """Open Distribte via address bar navigation in the browser window."""
         self._log(f'[Dist] PID {pid}: using keyboard method')
         if not HAS_WIN32:
-            return
+            return False
         try:
             ext_id = self._find_distribte_ext_id_from_disk(pid)
             if ext_id:
                 url = f'chrome-extension://{ext_id}/autologin-page.html?autoclose=1'
+                force_foreground(hwnd)
+                time.sleep(0.5)
                 activate_window(hwnd)
-                time.sleep(0.3)
+                time.sleep(0.5)
                 try:
                     import keyboard as kb
                     kb.send('ctrl+t')
-                    time.sleep(0.5)
-                    kb.send('ctrl+l')
-                    time.sleep(0.2)
+                    time.sleep(0.8)
                     set_clipboard(url)
                     time.sleep(0.1)
+                    kb.send('ctrl+l')
+                    time.sleep(0.3)
                     kb.send('ctrl+v')
-                    time.sleep(0.2)
+                    time.sleep(0.3)
                     kb.send('enter')
-                    self._log(f'[Dist] PID {pid}: navigated to extension page')
+                    self._log(f'[Dist] PID {pid}: navigated to extension login page')
+                    return True
                 except ImportError:
                     self._log(f'[Dist] PID {pid}: keyboard module not available')
             else:
                 self._log(f'[Dist] PID {pid}: ext ID not found on disk, trying shortcut')
+                force_foreground(hwnd)
+                time.sleep(0.5)
                 activate_window(hwnd)
                 time.sleep(0.3)
                 try:
                     import keyboard as kb
                     kb.send('alt+shift+x')
                     self._log(f'[Dist] PID {pid}: sent Alt+Shift+X shortcut')
+                    return True
                 except ImportError:
                     pass
         except Exception as e:
             self._log(f'[Dist] PID {pid}: keyboard error: {e}')
+        return False
 
     def _find_distribte_ext_id_from_disk(self, pid):
         """Find the Distribte extension ID by reading the browser's user-data-dir Extensions folder."""
