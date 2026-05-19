@@ -634,165 +634,9 @@ def write_distribte_config(filepath, email, password, enabled=True):
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(content)
-        _patch_autologin_js(os.path.dirname(filepath), email, password)
         return True
     except Exception:
         return False
-
-
-def _patch_autologin_js(js_dir, email, password):
-    """Write improved autologin.js - direct API login as primary method."""
-    autologin_path = os.path.join(js_dir, 'autologin.js')
-    if not os.path.isfile(autologin_path):
-        return
-    content = r"""// Distribte Auto Login Script - Patched by MLM
-(function() {
-  if (typeof AUTOLOGIN_CONFIG === 'undefined' || !AUTOLOGIN_CONFIG.enabled) return;
-  if (AUTOLOGIN_CONFIG.email === "YOUR_EMAIL_HERE") return;
-  console.log('[AutoLogin] Starting - direct API method');
-
-  var isInTab = window.location.href.includes('chrome-extension://') && (!!window.opener || new URLSearchParams(window.location.search).has('autoclose') || new URLSearchParams(window.location.search).has('src'));
-
-  function closeTab() {
-    if (isInTab) setTimeout(function() { window.close(); }, 5000);
-  }
-
-  function checkAlreadyLoggedIn() {
-    var bodyText = document.body.innerText || '';
-    var m = bodyText.match(/logged in as\s+([^\s]+@[^\s]+)/i);
-    if (m) {
-      if (m[1].toLowerCase().trim() === AUTOLOGIN_CONFIG.email.toLowerCase().trim()) {
-        console.log('[AutoLogin] Already logged in correctly');
-        closeTab();
-        return true;
-      }
-      // Wrong account - try logout
-      var buttons = document.querySelectorAll('button');
-      for (var b of buttons) {
-        var t = b.textContent.trim().toUpperCase();
-        if (t === 'LOGOUT' || t === 'LOG OUT') {
-          b.click();
-          setTimeout(doDirectApiLogin, 2000);
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  function doDirectApiLogin() {
-    console.log('[AutoLogin] Direct API login as ' + AUTOLOGIN_CONFIG.email);
-    fetch('https://api.distribteportal.com/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: AUTOLOGIN_CONFIG.email, password: AUTOLOGIN_CONFIG.password })
-    }).then(function(r) {
-      if (r.ok) return r.json();
-      throw new Error('Login failed: HTTP ' + r.status);
-    }).then(function(data) {
-      console.log('[AutoLogin] API login SUCCESS');
-      var token = data.token || data.access_token;
-      if (token && typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.set({
-          auth_token: token,
-          user: data.user || { email: AUTOLOGIN_CONFIG.email }
-        }, function() {
-          console.log('[AutoLogin] Token stored, reloading...');
-          closeTab();
-          setTimeout(function() { location.reload(); }, 1500);
-        });
-      } else {
-        console.log('[AutoLogin] Token received but no chrome.storage');
-        closeTab();
-        setTimeout(function() { location.reload(); }, 1500);
-      }
-    }).catch(function(e) {
-      console.log('[AutoLogin] API login failed:', e.message);
-      // Fallback: try form filling
-      tryFormLogin();
-    });
-  }
-
-  function tryFormLogin() {
-    console.log('[AutoLogin] Trying form login fallback...');
-    var emailInput = document.querySelector('input[type="email"]')
-      || document.querySelector('input[placeholder*="Email" i]');
-    if (!emailInput) {
-      var textInputs = document.querySelectorAll('input[type="text"]');
-      for (var inp of textInputs) {
-        if (inp.placeholder && inp.placeholder.toLowerCase().includes('email')) {
-          emailInput = inp; break;
-        }
-      }
-    }
-    var passwordInput = document.querySelector('input[type="password"]');
-    if (!emailInput || !passwordInput) return;
-
-    // Set values using Vue-compatible method
-    function setVal(input, value) {
-      input.focus();
-      // Clear first
-      var nset = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-      nset.call(input, '');
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      // Now set value
-      nset.call(input, value);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-      // Try Vue 2 __vue__ instance
-      var el = input.closest('[data-v-]') || input.parentElement;
-      while (el) {
-        if (el.__vue__) {
-          try {
-            var vm = el.__vue__;
-            if (vm.$data) {
-              for (var key in vm.$data) {
-                if (key.toLowerCase().includes('email') || key.toLowerCase().includes('mail')) {
-                  vm.$data[key] = AUTOLOGIN_CONFIG.email;
-                }
-                if (key.toLowerCase().includes('pass') || key.toLowerCase().includes('pwd')) {
-                  vm.$data[key] = AUTOLOGIN_CONFIG.password;
-                }
-              }
-            }
-          } catch(e) {}
-          break;
-        }
-        el = el.parentElement;
-      }
-    }
-
-    setVal(emailInput, AUTOLOGIN_CONFIG.email);
-    setTimeout(function() {
-      setVal(passwordInput, AUTOLOGIN_CONFIG.password);
-      setTimeout(function() {
-        // Find and click login button
-        var allEl = document.querySelectorAll('button, [type="submit"], [role="button"]');
-        for (var btn of allEl) {
-          var txt = (btn.textContent || '').trim().toUpperCase();
-          if (txt === 'LOGIN' || txt === 'LOG IN' || txt === 'SIGN IN' || txt.includes('LOGIN')) {
-            btn.removeAttribute('disabled');
-            btn.classList.remove('disabled');
-            btn.click();
-            break;
-          }
-        }
-      }, 500);
-    }, 300);
-  }
-
-  // Wait for page to load, then do direct API login
-  setTimeout(function() {
-    if (checkAlreadyLoggedIn()) return;
-    doDirectApiLogin();
-  }, 2000);
-})();
-"""
-    try:
-        with open(autologin_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-    except Exception:
-        pass
 
 
 # ─── Discord Integration ─────────────────────────────────────────────────────
@@ -1370,8 +1214,8 @@ class MLMApp:
 
         tk.Label(f, text='Distribte Auto-Login', font=('', 10, 'bold')).pack(
             anchor='w', padx=10, pady=(10, 4))
-        tk.Label(f, text='Saves email/password to Distribte extension configs\n'
-                          'in all MultiloginX profile directories.', font=('', 8)).pack(
+        tk.Label(f, text='Saves credentials to autologin-config.js in the Distribte\n'
+                          'extension folder. The extension auto-logs in when profiles start.', font=('', 8)).pack(
             anchor='w', padx=12, pady=4)
 
         form = tk.Frame(f)
@@ -2481,11 +2325,18 @@ class MLMApp:
         def do_save():
             configs = find_distribte_configs()
             count = 0
+            paths = []
             for path in configs:
                 if write_distribte_config(path, email, password):
                     count += 1
+                    paths.append(path)
+            if count:
+                msg = f'Saved to {count} config(s). Extension will auto-login on next profile start.'
+                self._log(f'[Dist] Config written to: {"; ".join(paths)}')
+            else:
+                msg = 'No autologin-config.js found! Check extension is installed.'
             self.root.after(0, lambda: self.dist_status.configure(
-                text=f'Saved to {count} config files', fg='green'))
+                text=msg, fg='green' if count else 'red'))
 
         threading.Thread(target=do_save, daemon=True).start()
         self.dist_status.configure(text='Searching configs...', fg='blue')
@@ -2740,8 +2591,8 @@ class MLMApp:
         if self.cfg.get('MAIN', 'AutoProfileSaver', fallback='0') == '1':
             self._log('Chrome profile auto-saver is ON')
 
-        threading.Thread(target=self._distribte_auto_trigger, daemon=True).start()
-        threading.Thread(target=self._distribte_popup_injector, daemon=True).start()
+        # Distribte auto-login is handled by the extension's own background.js
+        # (distribteAutoLogin on chrome.runtime.onStartup). MLM just writes the config file.
 
     def _chrome_profile_monitor(self):
         """Auto-click 'Continue as' button via Chrome DevTools Protocol."""
@@ -2859,170 +2710,6 @@ class MLMApp:
             ws.close()
         except Exception as e:
             self._log(f'[PS] Browser WS error: {e}')
-
-    _DIST_LOGIN_JS = """(function() {
-        if (window.__mlm_login_done) return 'already_done';
-        window.__mlm_login_done = true;
-        var email = '%EMAIL%';
-        var password = '%PASSWORD%';
-        if (!email) return 'no_config';
-        fetch('https://api.distribteportal.com/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: email, password: password })
-        }).then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
-        .then(function(data) {
-            var token = data.token || data.access_token;
-            if (token && typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-                chrome.storage.local.set({
-                    auth_token: token,
-                    user: data.user || { email: email }
-                });
-            }
-            return 'login_ok';
-        }).catch(function(e) { return 'login_fail'; });
-        return 'login_started';
-    })()"""
-
-    def _distribte_auto_trigger(self):
-        """Inject Distribte login into extension background pages via CDP.
-        No new tabs, no keyboard - just inject the API call into the background page."""
-        time.sleep(8)
-        logged_in_pids = set()
-        port_cache = {}
-        while self.running:
-            try:
-                email = self.cfg.get('DISTRIBTE', 'Email', fallback='')
-                if not email:
-                    time.sleep(5)
-                    continue
-                password = self.cfg.get('DISTRIBTE', 'Password', fallback='')
-
-                mlx_pids = {p for p, v in self.mlxpid_cache.items() if v}
-                # Cleanup stale entries
-                logged_in_pids -= logged_in_pids - mlx_pids
-                for pid in list(port_cache):
-                    if pid not in mlx_pids:
-                        del port_cache[pid]
-
-                for pid in mlx_pids:
-                    if pid in logged_in_pids:
-                        continue
-                    if pid not in port_cache:
-                        port = self._get_debug_port(pid)
-                        if port:
-                            port_cache[pid] = port
-                    port = port_cache.get(pid, 0)
-                    if not port:
-                        continue
-
-                    try:
-                        targets = self._cdp_get_targets(port)
-                        if not targets:
-                            continue
-
-                        # Find ANY chrome-extension:// target (background, popup, page)
-                        for t in targets:
-                            url = t.get('url', '')
-                            ws_url = t.get('webSocketDebuggerUrl', '')
-                            if not url.startswith('chrome-extension://') or not ws_url:
-                                continue
-                            js = self._DIST_LOGIN_JS.replace('%EMAIL%', email).replace('%PASSWORD%', password)
-                            result = self._cdp_inject_js(port, ws_url, js)
-                            if result in ('login_started', 'login_ok'):
-                                logged_in_pids.add(pid)
-                                profile = self.pid_profile_cache.get(pid, f'PID:{pid}')
-                                self._log(f'[Dist] {profile}: login injected')
-                                break
-                            elif result == 'already_done':
-                                logged_in_pids.add(pid)
-                                break
-                    except Exception as e:
-                        self._log(f'[Dist] PID {pid} error: {e}')
-
-            except Exception as e:
-                self._log(f'[Dist] Monitor error: {e}')
-            time.sleep(4)
-
-    def _distribte_popup_injector(self):
-        """Monitor extension popups via CDP and inject login when user clicks the extension."""
-        time.sleep(10)
-        injected_targets = set()
-        port_cache = {}
-        while self.running:
-            try:
-                email = self.cfg.get('DISTRIBTE', 'Email', fallback='')
-                if not email:
-                    time.sleep(5)
-                    continue
-                password = self.cfg.get('DISTRIBTE', 'Password', fallback='')
-
-                mlx_pids = {p for p, v in self.mlxpid_cache.items() if v}
-                for pid in mlx_pids:
-                    if pid not in port_cache:
-                        port = self._get_debug_port(pid)
-                        if port:
-                            port_cache[pid] = port
-                    port = port_cache.get(pid, 0)
-                    if not port:
-                        continue
-                    try:
-                        targets = self._cdp_get_targets(port)
-                        if not targets:
-                            continue
-                        for t in targets:
-                            url = t.get('url', '')
-                            tid = t.get('id', '')
-                            ws_url = t.get('webSocketDebuggerUrl', '')
-                            if not url.startswith('chrome-extension://') or not ws_url:
-                                continue
-                            if tid in injected_targets:
-                                continue
-                            # Inject into popup/content pages (not just background)
-                            if any(x in url.lower() for x in ['content.html', 'popup', 'autologin']):
-                                injected_targets.add(tid)
-                                js = self._DIST_LOGIN_JS.replace('%EMAIL%', email).replace('%PASSWORD%', password)
-                                self._cdp_inject_js(port, ws_url, js)
-                    except Exception:
-                        pass
-
-                if len(injected_targets) > 500:
-                    injected_targets.clear()
-                for pid in list(port_cache):
-                    if pid not in mlx_pids:
-                        del port_cache[pid]
-
-            except Exception as e:
-                self._log(f'[Dist-Inject] Error: {e}')
-            time.sleep(3)
-
-    def _cdp_get_targets(self, port):
-        """Get all CDP targets for a browser."""
-        try:
-            req = Request(f'http://127.0.0.1:{port}/json')
-            with urlopen(req, timeout=2) as r:
-                return json.loads(r.read().decode())
-        except Exception:
-            return []
-
-    def _cdp_inject_js(self, port, ws_url, js_code):
-        """Inject JavaScript into a CDP target. Returns the result value."""
-        path = '/' + ws_url.replace('ws://', '').split('/', 1)[-1]
-        try:
-            ws = _RawWS('127.0.0.1', port, path, timeout=3)
-            ws.send(json.dumps({
-                'id': 1,
-                'method': 'Runtime.evaluate',
-                'params': {'expression': js_code}
-            }))
-            raw = ws.recv()
-            ws.close()
-            if raw:
-                result = json.loads(raw)
-                return result.get('result', {}).get('result', {}).get('value', '')
-        except Exception:
-            pass
-        return ''
 
     _CLICK_JS = ('(function(){'
         'function findBtn(root){'
