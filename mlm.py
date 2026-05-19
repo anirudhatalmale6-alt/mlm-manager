@@ -1572,6 +1572,25 @@ class MLMApp:
     # CORE LOGIC
     # ══════════════════════════════════════════════════════════════════════════
 
+    def _extract_mlx_profile(self, title):
+        """Extract profile name and tab title from MLX window title.
+        MLX titles typically: '[Profile] - [Page Title] - Chromium'
+        or '[Profile] - [Page Title]'."""
+        if not title:
+            return ('Unknown', 'New Tab')
+        # Remove browser suffix (Chromium, Mimic, etc.)
+        clean = re.sub(r'\s*-\s*(Chromium|Google Chrome|Mimic)\s*$', '', title, flags=re.IGNORECASE)
+        parts = clean.split(' - ', 1)
+        if len(parts) >= 2:
+            profile_name = parts[0].strip()
+            tab_title = parts[1].strip()
+            if not profile_name:
+                profile_name = 'Unknown'
+            if not tab_title:
+                tab_title = 'New Tab'
+            return (profile_name, tab_title)
+        return (clean.strip() or 'Unknown', 'New Tab')
+
     def _get_browsers(self):
         """Scan for MultiloginX windows - equivalent to GetBrowsers() in AutoIt."""
         if not HAS_WIN32:
@@ -1595,8 +1614,8 @@ class MLMApp:
             self._log(f'Scan: {len(chrome_windows)} Chrome_WidgetWin_1 windows')
             for hw, t in chrome_windows:
                 pid = get_window_pid(hw)
-                sun = self.mlxpid_cache.get(pid, '?')
-                self._log(f'  hwnd={hw} pid={pid} sun={sun} title={t[:50]}')
+                mlx = self.mlxpid_cache.get(pid, '?')
+                self._log(f'  hwnd={hw} pid={pid} mlx={mlx} title={t[:50]}')
             # PID-based diagnostic: find ALL windows for known MultiloginX PIDs
             mlx_pids = {p for p, v in self.mlxpid_cache.items() if v}
             if mlx_pids:
@@ -1626,68 +1645,17 @@ class MLMApp:
 
             # Check MultiloginX (cache result)
             if pid not in self.mlxpid_cache:
-                is_sun = is_mlx_browser(pid)
-                self.mlxpid_cache[pid] = is_sun
+                is_mlx = is_mlx_browser(pid)
+                self.mlxpid_cache[pid] = is_mlx
                 if self._scan_log_count <= 5:
                     exe = get_process_exe(pid)
-                    self._log(f'PID {pid}: exe={exe[-40:]}, sun={is_sun}')
+                    self._log(f'PID {pid}: exe={exe[-40:]}, mlx={is_mlx}')
             if not self.mlxpid_cache[pid]:
                 continue
 
-            # Resolve profile name
-            if pid in self.pid_profile_cache:
-                profile_name = self.pid_profile_cache[pid]
-
-                # RETRY: if profile name looks like a raw profile ID (UUID or short alnum),
-                # check uid_map for a friendly name override
-                if (re.match(r'^[a-f0-9-]{6,36}$', profile_name)
-                        and resolve_budget > 0):
-                    # Check uid_map (user-defined name overrides)
-                    if profile_name in self.uid_map:
-                        old = profile_name
-                        profile_name = self.uid_map[profile_name]
-                        self.pid_profile_cache[pid] = profile_name
-                        self._log(f'Retry resolved (map): {old} -> {profile_name}')
-                    else:
-                        resolve_budget -= 1
-                        new_name = self.api.resolve_profile_name(profile_name)
-                        if new_name and new_name != profile_name:
-                            self.uid_map[profile_name] = new_name
-                            self.pid_profile_cache[pid] = new_name
-                            profile_name = new_name
-                            self._log(f'Retry resolved (API): {profile_name}')
-            else:
-                if new_budget <= 0:
-                    continue
-                new_budget -= 1
-
-                if pid not in self.cmdline_cache:
-                    self.cmdline_cache[pid] = get_process_cmdline(pid)
-                cmdline = self.cmdline_cache[pid]
-                user_id = get_mlx_profileid_from_cmdline(cmdline)
-                if user_id:
-                    # Check uid_map first (instant lookup like AutoIt $GUIDMAP)
-                    if user_id in self.uid_map:
-                        profile_name = self.uid_map[user_id]
-                        self._log(f'Profile from map: uid={user_id} -> {profile_name}')
-                    else:
-                        profile_name = self.api.resolve_profile_name(user_id)
-                        if profile_name != user_id:
-                            self.uid_map[user_id] = profile_name
-                            self._log(f'Profile resolved: uid={user_id} -> {profile_name}')
-                        else:
-                            # Show user_id for now, will retry on next cycles
-                            self._log(f'Profile pending: uid={user_id} (will retry)')
-                else:
-                    # Fallback: session name from cmdline
-                    m = re.search(r'--session[_-]name="?([^"\s]+)"?', cmdline)
-                    profile_name = m.group(1) if m else f'PID:{pid}'
-                    if self._scan_log_count <= 5:
-                        self._log(f'PID {pid}: no user_id, using {profile_name}')
-                self.pid_profile_cache[pid] = profile_name
-
-            # Tab title
-            tab_title = title if title else 'New Tab'
+            # Extract profile name and tab title from window title
+            # MLX window titles: "[Profile Name] - [Tab Title] - Chromium" or similar
+            profile_name, tab_title = self._extract_mlx_profile(title)
 
             new_browsers.append((hwnd, title, profile_name, tab_title))
 
