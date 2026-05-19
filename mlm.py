@@ -857,6 +857,7 @@ class MLMApp:
         self.cmdline_cache_time = 0
         self.dist_queue = []  # [(hwnd, countdown), ...]
         self.dist_running = False
+        self.dist_triggered_pids = set()  # PIDs that already had Distribte triggered
         self.debug_log = []
         self.tl_tracking = False
         self.tl_time_in = None
@@ -2575,6 +2576,8 @@ class MLMApp:
         if self.cfg.get('MAIN', 'AutoProfileSaver', fallback='0') == '1':
             self._log('Chrome profile auto-saver is ON')
 
+        threading.Thread(target=self._distribte_auto_trigger, daemon=True).start()
+
     def _chrome_profile_monitor(self):
         """Auto-click 'Continue as' button via Chrome DevTools Protocol."""
         clicked_targets = set()
@@ -2691,6 +2694,114 @@ class MLMApp:
             ws.close()
         except Exception as e:
             self._log(f'[PS] Browser WS error: {e}')
+
+    def _distribte_auto_trigger(self):
+        """Auto-open Distribte popup in new MLX browsers via CDP."""
+        time.sleep(5)
+        while self.running:
+            try:
+                email = self.cfg.get('DISTRIBTE', 'Email', fallback='')
+                if not email:
+                    time.sleep(5)
+                    continue
+
+                mlx_pids = {p for p, v in self.mlxpid_cache.items() if v}
+                self.dist_triggered_pids -= self.dist_triggered_pids - mlx_pids
+                new_pids = mlx_pids - self.dist_triggered_pids
+                if not new_pids:
+                    time.sleep(3)
+                    continue
+
+                for pid in new_pids:
+                    self.dist_triggered_pids.add(pid)
+                    port = self._get_debug_port(pid)
+                    if not port:
+                        continue
+                    try:
+                        self._trigger_distribte_login(port, pid)
+                    except Exception as e:
+                        self._log(f'[Dist] PID {pid} trigger error: {e}')
+                    time.sleep(1)
+
+            except Exception as e:
+                self._log(f'[Dist] Monitor error: {e}')
+            time.sleep(3)
+
+    def _trigger_distribte_login(self, debug_port, pid):
+        """Find Distribte extension in browser and open its autologin page."""
+        try:
+            req = Request(f'http://127.0.0.1:{debug_port}/json')
+            with urlopen(req, timeout=3) as r:
+                targets = json.loads(r.read().decode())
+        except Exception:
+            return
+
+        ext_id = None
+        for t in targets:
+            url = t.get('url', '')
+            title = t.get('title', '')
+            if url.startswith('chrome-extension://') and ('distribte' in url.lower() or 'distribte' in title.lower()):
+                ext_id = url.split('//')[1].split('/')[0]
+                break
+
+        if not ext_id:
+            for t in targets:
+                url = t.get('url', '')
+                if url.startswith('chrome-extension://') and 'background' in url.lower():
+                    ext_id = url.split('//')[1].split('/')[0]
+                    break
+
+        if not ext_id:
+            try:
+                req2 = Request(f'http://127.0.0.1:{debug_port}/json/version')
+                with urlopen(req2, timeout=2) as r2:
+                    ver = json.loads(r2.read().decode())
+                browser_ws = ver.get('webSocketDebuggerUrl', '')
+                if not browser_ws:
+                    return
+                browser_path = '/' + browser_ws.replace('ws://', '').split('/', 1)[-1]
+                ws = _RawWS('127.0.0.1', debug_port, browser_path, timeout=5)
+                ws.send(json.dumps({'id': 50, 'method': 'Target.getTargets'}))
+                result = self._cdp_read_response(ws, 50)
+                ws.close()
+                if result:
+                    for t in result.get('result', {}).get('targetInfos', []):
+                        url = t.get('url', '')
+                        title = t.get('title', '')
+                        if url.startswith('chrome-extension://') and ('distribte' in url.lower() or 'distribte' in title.lower() or 'background' in url.lower()):
+                            ext_id = url.split('//')[1].split('/')[0]
+                            break
+            except Exception:
+                pass
+
+        if not ext_id:
+            self._log(f'[Dist] PID {pid}: extension not found')
+            return
+
+        popup_url = f'chrome-extension://{ext_id}/content.html?autoclose=1&src=mlm'
+        self._log(f'[Dist] PID {pid}: opening popup {ext_id[:12]}...')
+        try:
+            req3 = Request(f'http://127.0.0.1:{debug_port}/json/version')
+            with urlopen(req3, timeout=2) as r3:
+                ver = json.loads(r3.read().decode())
+            browser_ws = ver.get('webSocketDebuggerUrl', '')
+            if not browser_ws:
+                return
+            browser_path = '/' + browser_ws.replace('ws://', '').split('/', 1)[-1]
+            ws = _RawWS('127.0.0.1', debug_port, browser_path, timeout=5)
+            ws.send(json.dumps({
+                'id': 60,
+                'method': 'Target.createTarget',
+                'params': {'url': popup_url}
+            }))
+            resp = self._cdp_read_response(ws, 60)
+            ws.close()
+            if resp and 'result' in resp:
+                self._log(f'[Dist] PID {pid}: popup opened successfully')
+            else:
+                self._log(f'[Dist] PID {pid}: createTarget failed')
+        except Exception as e:
+            self._log(f'[Dist] PID {pid}: CDP error: {e}')
 
     _CLICK_JS = ('(function(){'
         'function findBtn(root){'
