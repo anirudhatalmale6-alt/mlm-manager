@@ -200,7 +200,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0.23"
+VERSION = "1.0.24"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -1601,7 +1601,8 @@ class MLMApp:
             # Skip extension popup/overlay windows
             title_lower = title.lower()
             if any(skip in title_lower for skip in [
-                'chrome-extension://', 'devtools'
+                'distribte-extension', 'distribte extension', 'distribte auto login',
+                'chrome-extension://', 'devtools', 'extensions'
             ]):
                 continue
 
