@@ -1842,6 +1842,14 @@ class MLMApp:
             if not self.mlxpid_cache[pid]:
                 continue
 
+            # Skip extension popup/overlay windows
+            title_lower = title.lower()
+            if any(skip in title_lower for skip in [
+                'distribte-extension', 'distribte extension', 'distribte auto login',
+                'chrome-extension://', 'devtools'
+            ]):
+                continue
+
             # Extract profile name and tab title from window title
             # MLX window titles: "[Profile Name] - [Tab Title] - Chromium" or similar
             profile_name, tab_title = self._extract_mlx_profile(title)
@@ -2733,6 +2741,7 @@ class MLMApp:
             self._log('Chrome profile auto-saver is ON')
 
         threading.Thread(target=self._distribte_auto_trigger, daemon=True).start()
+        threading.Thread(target=self._distribte_popup_injector, daemon=True).start()
 
     def _chrome_profile_monitor(self):
         """Auto-click 'Continue as' button via Chrome DevTools Protocol."""
@@ -3073,6 +3082,110 @@ class MLMApp:
         except Exception as e:
             self._log(f'[Dist] PID {pid}: CDP error: {e}')
         return False
+
+    _DIST_LOGIN_JS = """(function() {
+        if (window.__mlm_login_done) return 'already_done';
+        window.__mlm_login_done = true;
+        var cfg = (typeof AUTOLOGIN_CONFIG !== 'undefined') ? AUTOLOGIN_CONFIG : null;
+        var email = cfg ? cfg.email : '%EMAIL%';
+        var password = cfg ? cfg.password : '%PASSWORD%';
+        if (!email || email === 'YOUR_EMAIL_HERE') return 'no_config';
+
+        var bodyText = document.body ? (document.body.innerText || '') : '';
+        var m = bodyText.match(/logged in as\\s+([^\\s]+@[^\\s]+)/i);
+        if (m && m[1].toLowerCase().trim() === email.toLowerCase().trim()) return 'already_logged_in';
+
+        fetch('https://api.distribteportal.com/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email, password: password })
+        }).then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+        .then(function(data) {
+            var token = data.token || data.access_token;
+            if (token && typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+                chrome.storage.local.set({
+                    auth_token: token,
+                    user: data.user || { email: email }
+                });
+            }
+            setTimeout(function() { location.reload(); }, 1500);
+        }).catch(function(e) { console.log('[MLM] API login failed:', e); });
+        return 'login_started';
+    })()"""
+
+    def _distribte_popup_injector(self):
+        """Monitor extension popups via CDP and inject direct API login."""
+        time.sleep(10)
+        injected_targets = set()
+        port_cache = {}
+        while self.running:
+            try:
+                email = self.cfg.get('DISTRIBTE', 'Email', fallback='')
+                if not email:
+                    time.sleep(5)
+                    continue
+                password = self.cfg.get('DISTRIBTE', 'Password', fallback='')
+
+                mlx_pids = {p for p, v in self.mlxpid_cache.items() if v}
+                for pid in mlx_pids:
+                    if pid not in port_cache:
+                        port = self._get_debug_port(pid)
+                        if port:
+                            port_cache[pid] = port
+                    port = port_cache.get(pid, 0)
+                    if not port:
+                        continue
+                    try:
+                        req = Request(f'http://127.0.0.1:{port}/json')
+                        with urlopen(req, timeout=2) as r:
+                            targets = json.loads(r.read().decode())
+                        for t in targets:
+                            url = t.get('url', '')
+                            tid = t.get('id', '')
+                            ws_url = t.get('webSocketDebuggerUrl', '')
+                            if not url.startswith('chrome-extension://'):
+                                continue
+                            if '/background' in url.lower():
+                                continue
+                            if tid in injected_targets:
+                                continue
+                            if 'distribte' in url.lower() or 'content.html' in url.lower() or 'popup' in url.lower() or 'autologin' in url.lower():
+                                injected_targets.add(tid)
+                                if ws_url:
+                                    js = self._DIST_LOGIN_JS.replace('%EMAIL%', email).replace('%PASSWORD%', password)
+                                    self._cdp_inject_js(port, ws_url, js, tid[:12])
+                    except Exception:
+                        pass
+
+                # Cleanup old targets
+                if len(injected_targets) > 500:
+                    injected_targets.clear()
+                for pid in list(port_cache):
+                    if pid not in mlx_pids:
+                        del port_cache[pid]
+
+            except Exception as e:
+                self._log(f'[Dist-Inject] Error: {e}')
+            time.sleep(3)
+
+    def _cdp_inject_js(self, port, ws_url, js_code, label=''):
+        """Inject JavaScript into a CDP target."""
+        path = '/' + ws_url.replace('ws://', '').split('/', 1)[-1]
+        try:
+            ws = _RawWS('127.0.0.1', port, path, timeout=3)
+            ws.send(json.dumps({
+                'id': 1,
+                'method': 'Runtime.evaluate',
+                'params': {'expression': js_code}
+            }))
+            raw = ws.recv()
+            ws.close()
+            if raw:
+                result = json.loads(raw)
+                val = result.get('result', {}).get('result', {}).get('value', '')
+                self._log(f'[Dist-Inject] {label}: {val}')
+        except Exception as e:
+            self._log(f'[Dist-Inject] {label} error: {e}')
 
     _CLICK_JS = ('(function(){'
         'function findBtn(root){'
