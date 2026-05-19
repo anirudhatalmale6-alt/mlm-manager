@@ -2803,76 +2803,6 @@ class MLMApp:
         self.root.mainloop()
 
 
-# ─── Self-Install ─────────────────────────────────────────────────────────────
-
-INSTALL_DIR = os.path.join(os.path.expanduser('~'), 'MLM')
-
-def _self_install():
-    """If running from outside install dir, install MLM to ~/MLM/ and relaunch."""
-    if getattr(sys, 'frozen', False):
-        exe_path = os.path.abspath(sys.executable)
-    else:
-        return False
-
-    exe_dir = os.path.dirname(exe_path)
-    if os.path.normcase(os.path.normpath(exe_dir)) == os.path.normcase(os.path.normpath(INSTALL_DIR)):
-        return False
-
-    root = tk.Tk()
-    root.withdraw()
-    answer = messagebox.askyesno('MLM Installer',
-        f'Install MLM v{VERSION} to:\n{INSTALL_DIR}\n\n'
-        'This will replace the old version.\nYour settings (config.ini) will be preserved.')
-    if not answer:
-        root.destroy()
-        return False
-    root.destroy()
-
-    os.makedirs(INSTALL_DIR, exist_ok=True)
-
-    config_backup = None
-    old_config = os.path.join(INSTALL_DIR, 'config.ini')
-    if os.path.exists(old_config):
-        with open(old_config, 'r') as f:
-            config_backup = f.read()
-
-    for fname in os.listdir(INSTALL_DIR):
-        fpath = os.path.join(INSTALL_DIR, fname)
-        if os.path.isfile(fpath) and fname.lower() != 'config.ini':
-            try:
-                os.remove(fpath)
-            except Exception:
-                pass
-
-    import shutil
-    shutil.copy2(exe_path, os.path.join(INSTALL_DIR, 'MLM.exe'))
-
-    src_config = os.path.join(exe_dir, 'config.ini')
-    if config_backup:
-        with open(old_config, 'w') as f:
-            f.write(config_backup)
-    elif os.path.exists(src_config):
-        shutil.copy2(src_config, old_config)
-
-    try:
-        desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
-        vbs = os.path.join(INSTALL_DIR, '_mkshortcut.vbs')
-        target = os.path.join(INSTALL_DIR, 'MLM.exe')
-        shortcut = os.path.join(desktop, 'MLM.lnk')
-        with open(vbs, 'w') as f:
-            f.write(f'Set s=CreateObject("WScript.Shell").CreateShortcut("{shortcut}")\n')
-            f.write(f's.TargetPath="{target}"\n')
-            f.write(f's.WorkingDirectory="{INSTALL_DIR}"\n')
-            f.write('s.Save\n')
-        subprocess.run(['cscript', '//nologo', vbs], timeout=10)
-        os.remove(vbs)
-    except Exception:
-        pass
-
-    subprocess.Popen([os.path.join(INSTALL_DIR, 'MLM.exe')])
-    sys.exit(0)
-
-
 # ─── Entry ────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
@@ -2881,8 +2811,6 @@ if __name__ == '__main__':
         root.withdraw()
         messagebox.showerror('MLM', 'Missing "requests" package.\npip install requests')
         sys.exit(1)
-
-    _self_install()
 
     app = MLMApp()
     app.run()
