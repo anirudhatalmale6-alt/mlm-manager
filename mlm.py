@@ -200,7 +200,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0"
+VERSION = "1.0.23"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -237,7 +237,7 @@ def load_config():
     cfg = configparser.ConfigParser()
     if os.path.exists(CONFIG_PATH):
         cfg.read(CONFIG_PATH, encoding='utf-8')
-    for s in ['MAIN', 'HOTKEYS', 'HOTKEYS2', 'DISCORD', 'DISTRIBTE', 'POSITIONER']:
+    for s in ['MAIN', 'HOTKEYS', 'HOTKEYS2', 'DISCORD', 'POSITIONER']:
         if not cfg.has_section(s):
             cfg.add_section(s)
     defaults = {
@@ -262,7 +262,6 @@ def load_config():
             'ProfileName': '', 'ScreenshotFolder': os.path.join(BASE_DIR, 'Screenshots'),
             'SheetUrl': '',
         },
-        'DISTRIBTE': {'Email': '', 'Password': ''},
         'POSITIONER': {
             'Cols': '4', 'Rows': '2', 'Width': '480', 'Height': '540',
             'GapX': '0', 'GapY': '0', 'URL': 'https://www.ticketmaster.com',
@@ -591,54 +590,6 @@ class MLXProfileResolver:
         return profile_id
 
 
-# ─── Distribte Extension ─────────────────────────────────────────────────────
-
-DISTRIBTE_SEARCH_PATHS = []
-
-def find_distribte_configs():
-    """Find all autologin-config.js files in MultiloginX extension dirs.
-    MLX stores extensions at: %USERPROFILE%\\mlx\\Custom_Extensions\\Mimic\\"""
-    configs = []
-    search_dirs = list(DISTRIBTE_SEARCH_PATHS)
-    home = os.environ.get('USERPROFILE', '')
-    if home:
-        search_dirs.append(os.path.join(home, 'mlx', 'Custom_Extensions', 'Mimic'))
-        search_dirs.append(os.path.join(home, 'mlx', 'Custom_Extensions'))
-        search_dirs.append(os.path.join(home, 'mlx'))
-    local = os.environ.get('LOCALAPPDATA', '')
-    appdata = os.environ.get('APPDATA', '')
-    if local:
-        search_dirs.append(os.path.join(local, 'Multilogin X'))
-        search_dirs.append(os.path.join(local, 'Multilogin'))
-    if appdata:
-        search_dirs.append(os.path.join(appdata, 'Multilogin X'))
-        search_dirs.append(os.path.join(appdata, 'Multilogin'))
-
-    for base_dir in search_dirs:
-        if not os.path.isdir(base_dir):
-            continue
-        for root, dirs, files in os.walk(base_dir):
-            for f in files:
-                if f.lower() == 'autologin-config.js':
-                    configs.append(os.path.join(root, f))
-            # Limit depth
-            depth = root[len(base_dir):].count(os.sep)
-            if depth > 8:
-                dirs.clear()
-    return configs
-
-
-def write_distribte_config(filepath, email, password, enabled=True):
-    """Write autologin-config.js for the Distribte extension."""
-    content = f'const AUTOLOGIN_CONFIG = {{ email: "{email}", password: "{password}", enabled: {str(enabled).lower()} }};\n'
-    try:
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(content)
-        return True
-    except Exception:
-        return False
-
-
 # ─── Discord Integration ─────────────────────────────────────────────────────
 
 def discord_webhook_send_text(webhook_url, content, username='MLM'):
@@ -855,9 +806,6 @@ class MLMApp:
         self.mlxpid_cache = {}  # pid -> bool (is MultiloginX browser)
         self.cmdline_cache = {}  # pid -> cmdline
         self.cmdline_cache_time = 0
-        self.dist_queue = []  # [(hwnd, countdown), ...]
-        self.dist_running = False
-        self.dist_triggered_pids = set()  # PIDs that already had Distribte triggered
         self.debug_log = []
         self.tl_tracking = False
         self.tl_time_in = None
@@ -906,14 +854,12 @@ class MLMApp:
         self.tab_main = ttk.Frame(self.notebook)
         self.tab_settings = ttk.Frame(self.notebook)
         self.tab_discord = ttk.Frame(self.notebook)
-        self.tab_distribte = ttk.Frame(self.notebook)
         self.tab_pos = ttk.Frame(self.notebook)
         self.tab_timelog = ttk.Frame(self.notebook)
 
         self.notebook.add(self.tab_main, text='Main')
         self.notebook.add(self.tab_settings, text='Settings')
         self.notebook.add(self.tab_discord, text='Discord')
-        self.notebook.add(self.tab_distribte, text='Distribte')
         self.notebook.add(self.tab_pos, text='Pos')
         self.notebook.add(self.tab_timelog, text='Time')
 
@@ -924,7 +870,6 @@ class MLMApp:
         self._build_main_tab()
         self._build_settings_tab()
         self._build_discord_tab()
-        self._build_distribte_tab()
         self._build_pos_tab()
         self._build_timelog_tab()
         self._build_bottom_bar()
@@ -1206,39 +1151,6 @@ class MLMApp:
 
         tk.Button(f, text='Save Discord Settings', command=self._save_discord).grid(
             row=row, column=0, columnspan=2, pady=8)
-
-    # ── DISTRIBTE TAB ─────────────────────────────────────────────────────────
-
-    def _build_distribte_tab(self):
-        f = self.tab_distribte
-
-        tk.Label(f, text='Distribte Auto-Login', font=('', 10, 'bold')).pack(
-            anchor='w', padx=10, pady=(10, 4))
-        tk.Label(f, text='Saves credentials to autologin-config.js in the Distribte\n'
-                          'extension folder. The extension auto-logs in when profiles start.', font=('', 8)).pack(
-            anchor='w', padx=12, pady=4)
-
-        form = tk.Frame(f)
-        form.pack(padx=12, pady=4)
-        tk.Label(form, text='Email:').grid(row=0, column=0, sticky='w')
-        self.dist_email = tk.Entry(form, width=30)
-        self.dist_email.insert(0, self.cfg.get('DISTRIBTE', 'Email', fallback=''))
-        self.dist_email.grid(row=0, column=1, padx=4, pady=2)
-
-        tk.Label(form, text='Password:').grid(row=1, column=0, sticky='w')
-        self.dist_password = tk.Entry(form, width=30, show='*')
-        self.dist_password.insert(0, self.cfg.get('DISTRIBTE', 'Password', fallback=''))
-        self.dist_password.grid(row=1, column=1, padx=4, pady=2)
-
-        btn_frame = tk.Frame(f)
-        btn_frame.pack(pady=8)
-        tk.Button(btn_frame, text='Save & Apply', bg='#4CA070', fg='white',
-                  command=self._dist_save).pack(side='left', padx=4)
-        tk.Button(btn_frame, text='Clear', bg='#e94560', fg='white',
-                  command=self._dist_clear).pack(side='left', padx=4)
-
-        self.dist_status = tk.Label(f, text='', font=('', 8))
-        self.dist_status.pack(pady=4)
 
     # ── POSITIONER TAB ────────────────────────────────────────────────────────
 
@@ -1689,7 +1601,6 @@ class MLMApp:
             # Skip extension popup/overlay windows
             title_lower = title.lower()
             if any(skip in title_lower for skip in [
-                'distribte-extension', 'distribte extension', 'distribte auto login',
                 'chrome-extension://', 'devtools'
             ]):
                 continue
@@ -2321,55 +2232,6 @@ class MLMApp:
         save_config(self.cfg)
         self._log('Positioner settings saved')
 
-    # ── Distribte ─────────────────────────────────────────────────────────────
-
-    def _dist_save(self):
-        email = self.dist_email.get().strip()
-        password = self.dist_password.get().strip()
-        if not email or not password:
-            self.dist_status.configure(text='Email and password required', fg='red')
-            return
-        self.cfg.set('DISTRIBTE', 'Email', email)
-        self.cfg.set('DISTRIBTE', 'Password', password)
-        save_config(self.cfg)
-
-        def do_save():
-            configs = find_distribte_configs()
-            count = 0
-            paths = []
-            for path in configs:
-                if write_distribte_config(path, email, password):
-                    count += 1
-                    paths.append(path)
-            if count:
-                msg = f'Saved to {count} config(s). Extension will auto-login on next profile start.'
-                self._log(f'[Dist] Config written to: {"; ".join(paths)}')
-            else:
-                msg = 'No autologin-config.js found! Check extension is installed.'
-            self.root.after(0, lambda: self.dist_status.configure(
-                text=msg, fg='green' if count else 'red'))
-
-        threading.Thread(target=do_save, daemon=True).start()
-        self.dist_status.configure(text='Searching configs...', fg='blue')
-
-    def _dist_clear(self):
-        self.cfg.set('DISTRIBTE', 'Email', '')
-        self.cfg.set('DISTRIBTE', 'Password', '')
-        save_config(self.cfg)
-        self.dist_email.delete(0, 'end')
-        self.dist_password.delete(0, 'end')
-
-        def do_clear():
-            configs = find_distribte_configs()
-            count = 0
-            for path in configs:
-                if write_distribte_config(path, '', '', enabled=False):
-                    count += 1
-            self.root.after(0, lambda: self.dist_status.configure(
-                text=f'Cleared {count} config files', fg='orange'))
-
-        threading.Thread(target=do_clear, daemon=True).start()
-
     # ── Discord ───────────────────────────────────────────────────────────────
 
     def _discord_send(self, channel):
@@ -2601,9 +2463,6 @@ class MLMApp:
         threading.Thread(target=self._chrome_profile_monitor, daemon=True).start()
         if self.cfg.get('MAIN', 'AutoProfileSaver', fallback='0') == '1':
             self._log('Chrome profile auto-saver is ON')
-
-        # Distribte auto-login is handled by the extension's own background.js
-        # (distribteAutoLogin on chrome.runtime.onStartup). MLM just writes the config file.
 
     def _chrome_profile_monitor(self):
         """Auto-click 'Continue as' button via Chrome DevTools Protocol."""
