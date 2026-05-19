@@ -1591,8 +1591,13 @@ class MLMApp:
         if len(colon_parts) >= 2:
             profile_part = colon_parts[0].strip()
             tab_title = colon_parts[1].strip()
-            # Extract serial from profile part (after "|" if email present)
-            if '|' in profile_part:
+            # Extract naming code from profile part
+            # Full format: "[email] | [serial] - C - H - ID58"
+            # We want just "C - H - ID58" (the naming convention, not the serial)
+            naming_match = re.search(r'([A-Z]\s*-\s*[A-Z]\s*-\s*\w+)', profile_part)
+            if naming_match:
+                profile_name = naming_match.group(1)
+            elif '|' in profile_part:
                 after_pipe = profile_part.split('|', 1)[-1].strip()
                 profile_name = after_pipe if after_pipe else profile_part
             elif '@' in profile_part:
