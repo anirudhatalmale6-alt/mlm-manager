@@ -1700,6 +1700,17 @@ class MLMApp:
 
             new_browsers.append((hwnd, title, profile_name, tab_title))
 
+        # Deduplicate: if a profile has a real tab, hide its "New Tab" entries
+        profiles_with_real_tabs = set()
+        for _, _, pname, ttitle in new_browsers:
+            if pname and ttitle and ttitle != 'New Tab':
+                profiles_with_real_tabs.add(pname)
+        if profiles_with_real_tabs:
+            new_browsers = [
+                b for b in new_browsers
+                if b[3] != 'New Tab' or b[2] not in profiles_with_real_tabs
+            ]
+
         self.browsers = new_browsers
         self.root.after(0, self._refresh_tree)
 
