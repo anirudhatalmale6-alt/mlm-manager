@@ -1,0 +1,31 @@
+name: Build MLM.exe
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install requests websocket-client keyboard pywin32 Pillow pyinstaller
+
+      - name: Build EXE
+        run: |
+          pyinstaller --onefile --windowed --name MLM mlm.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MLM-exe
+          path: dist/MLM.exe
