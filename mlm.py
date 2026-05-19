@@ -1574,16 +1574,24 @@ class MLMApp:
 
     def _extract_mlx_profile(self, title):
         """Extract profile name and tab title from MLX window title.
-        MLX titles typically: '[Profile] - [Page Title] - Chromium'
-        or '[Profile] - [Page Title]'."""
+        MLX titles: '[email] | [serial] - [naming] - [page title] - Chromium'
+        Profile should show the serial number, Tab shows the page title."""
         if not title:
             return ('Unknown', 'New Tab')
         # Remove browser suffix (Chromium, Mimic, etc.)
         clean = re.sub(r'\s*-\s*(Chromium|Google Chrome|Mimic)\s*$', '', title, flags=re.IGNORECASE)
         parts = clean.split(' - ', 1)
         if len(parts) >= 2:
-            profile_name = parts[0].strip()
+            raw_profile = parts[0].strip()
             tab_title = parts[1].strip()
+            # If profile contains "|" (email | serial format), extract serial
+            if '|' in raw_profile:
+                serial = raw_profile.split('|')[-1].strip()
+                profile_name = serial if serial else raw_profile
+            elif '@' in raw_profile:
+                profile_name = raw_profile.split('@')[0].strip()
+            else:
+                profile_name = raw_profile
             if not profile_name:
                 profile_name = 'Unknown'
             if not tab_title:
