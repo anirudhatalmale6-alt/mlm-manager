@@ -400,9 +400,12 @@ def is_mlx_browser(pid):
     """Check if a PID is a MultiloginX browser process.
     MLX browsers show as 'Chromium' in Task Manager. Detects by:
     1. 'multilogin' or 'mlx' in the exe path
-    2. Generic Chromium that is NOT from Google, Microsoft, or Brave"""
+    2. Generic Chromium that is NOT from Google, Microsoft, Brave, or AdsPower"""
     exe = get_process_exe(pid)
     exe_lower = exe.lower()
+    # Exclude AdsPower (SunBrowser) explicitly
+    if 'sunbrowser' in exe_lower or 'sun_browser' in exe_lower or 'adspower' in exe_lower:
+        return False
     if 'multilogin' in exe_lower or 'mlx' in exe_lower:
         return True
     if 'chromium' in exe_lower or 'mimic' in exe_lower or 'stealthfox' in exe_lower:
@@ -1574,29 +1577,45 @@ class MLMApp:
 
     def _extract_mlx_profile(self, title):
         """Extract profile name and tab title from MLX window title.
-        MLX titles: '[email] | [serial] - [naming] - [page title] - Chromium'
-        Profile should show the serial number, Tab shows the page title."""
+        MLX title format: '[email] | [serial] - [A] - [B] - [CODE]: [page title] - Chromium'
+        Profile = serial + naming code (e.g. '2148 - C - H - ID58')
+        Tab = page title after the colon (e.g. '2 | Jay-Z Extra Innings')"""
         if not title:
             return ('Unknown', 'New Tab')
         # Remove browser suffix (Chromium, Mimic, etc.)
         clean = re.sub(r'\s*-\s*(Chromium|Google Chrome|Mimic)\s*$', '', title, flags=re.IGNORECASE)
-        parts = clean.split(' - ', 1)
-        if len(parts) >= 2:
-            raw_profile = parts[0].strip()
-            tab_title = parts[1].strip()
-            # If profile contains "|" (email | serial format), extract serial
-            if '|' in raw_profile:
-                serial = raw_profile.split('|')[-1].strip()
-                profile_name = serial if serial else raw_profile
-            elif '@' in raw_profile:
-                profile_name = raw_profile.split('@')[0].strip()
+
+        # Split on ": " to separate profile naming from page title
+        # Format: "[email] | [serial] - [A] - [B] - [CODE]: [page title]"
+        colon_parts = clean.split(': ', 1)
+        if len(colon_parts) >= 2:
+            profile_part = colon_parts[0].strip()
+            tab_title = colon_parts[1].strip()
+            # Extract serial from profile part (after "|" if email present)
+            if '|' in profile_part:
+                after_pipe = profile_part.split('|', 1)[-1].strip()
+                profile_name = after_pipe if after_pipe else profile_part
+            elif '@' in profile_part:
+                profile_name = profile_part.split('@')[0].strip()
             else:
-                profile_name = raw_profile
+                profile_name = profile_part
             if not profile_name:
                 profile_name = 'Unknown'
             if not tab_title:
                 tab_title = 'New Tab'
             return (profile_name, tab_title)
+
+        # Fallback: split on first " - "
+        parts = clean.split(' - ', 1)
+        if len(parts) >= 2:
+            raw_profile = parts[0].strip()
+            tab_title = parts[1].strip()
+            if '|' in raw_profile:
+                serial = raw_profile.split('|')[-1].strip()
+                profile_name = serial if serial else raw_profile
+            else:
+                profile_name = raw_profile
+            return (profile_name or 'Unknown', tab_title or 'New Tab')
         return (clean.strip() or 'Unknown', 'New Tab')
 
     def _get_browsers(self):
