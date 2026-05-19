@@ -2696,8 +2696,8 @@ class MLMApp:
             self._log(f'[PS] Browser WS error: {e}')
 
     def _distribte_auto_trigger(self):
-        """Auto-open Distribte popup in new MLX browsers via CDP."""
-        time.sleep(5)
+        """Auto-open Distribte popup in new MLX browsers via Win32 + CDP."""
+        time.sleep(8)
         while self.running:
             try:
                 email = self.cfg.get('DISTRIBTE', 'Email', fallback='')
@@ -2714,11 +2714,9 @@ class MLMApp:
 
                 for pid in new_pids:
                     self.dist_triggered_pids.add(pid)
-                    port = self._get_debug_port(pid)
-                    if not port:
-                        continue
+                    time.sleep(3)
                     try:
-                        self._trigger_distribte_login(port, pid)
+                        self._trigger_distribte_for_pid(pid)
                     except Exception as e:
                         self._log(f'[Dist] PID {pid} trigger error: {e}')
                     time.sleep(1)
@@ -2727,27 +2725,123 @@ class MLMApp:
                 self._log(f'[Dist] Monitor error: {e}')
             time.sleep(3)
 
-    def _trigger_distribte_login(self, debug_port, pid):
-        """Find Distribte extension in browser and open its autologin page."""
+    def _trigger_distribte_for_pid(self, pid):
+        """Try CDP first, then Win32 keyboard to trigger Distribte login."""
+        port = self._get_debug_port(pid)
+        if port:
+            ok = self._trigger_distribte_cdp(port, pid)
+            if ok:
+                return
+
+        hwnd = self._find_hwnd_for_pid(pid)
+        if hwnd:
+            self._trigger_distribte_keyboard(hwnd, pid)
+
+    def _find_hwnd_for_pid(self, target_pid):
+        """Find the main browser window handle for a PID."""
+        for hwnd, title, profile, tab in self.browsers:
+            wpid = get_window_pid(hwnd)
+            if wpid == target_pid:
+                return hwnd
+        return 0
+
+    def _trigger_distribte_keyboard(self, hwnd, pid):
+        """Open Distribte via address bar navigation in the browser window."""
+        self._log(f'[Dist] PID {pid}: using keyboard method')
+        if not HAS_WIN32:
+            return
+        try:
+            ext_id = self._find_distribte_ext_id_from_disk(pid)
+            if ext_id:
+                url = f'chrome-extension://{ext_id}/autologin-page.html?autoclose=1'
+                activate_window(hwnd)
+                time.sleep(0.3)
+                try:
+                    import keyboard as kb
+                    kb.send('ctrl+t')
+                    time.sleep(0.5)
+                    kb.send('ctrl+l')
+                    time.sleep(0.2)
+                    set_clipboard(url)
+                    time.sleep(0.1)
+                    kb.send('ctrl+v')
+                    time.sleep(0.2)
+                    kb.send('enter')
+                    self._log(f'[Dist] PID {pid}: navigated to extension page')
+                except ImportError:
+                    self._log(f'[Dist] PID {pid}: keyboard module not available')
+            else:
+                self._log(f'[Dist] PID {pid}: ext ID not found on disk, trying shortcut')
+                activate_window(hwnd)
+                time.sleep(0.3)
+                try:
+                    import keyboard as kb
+                    kb.send('alt+shift+x')
+                    self._log(f'[Dist] PID {pid}: sent Alt+Shift+X shortcut')
+                except ImportError:
+                    pass
+        except Exception as e:
+            self._log(f'[Dist] PID {pid}: keyboard error: {e}')
+
+    def _find_distribte_ext_id_from_disk(self, pid):
+        """Find the Distribte extension ID by reading the browser's user-data-dir Extensions folder."""
+        cmdline = self.cmdline_cache.get(pid, '')
+        if not cmdline:
+            cmdline = get_process_cmdline(pid)
+            if cmdline:
+                self.cmdline_cache[pid] = cmdline
+        if not cmdline:
+            return None
+        m = re.search(r'--user-data-dir="?([^"]+)"?', cmdline)
+        if not m:
+            return None
+        user_data = m.group(1).strip().rstrip('\\/')
+        ext_dirs = [
+            os.path.join(user_data, 'Default', 'Extensions'),
+            os.path.join(user_data, 'Extensions'),
+        ]
+        for ext_dir in ext_dirs:
+            if not os.path.isdir(ext_dir):
+                continue
+            for entry in os.listdir(ext_dir):
+                full = os.path.join(ext_dir, entry)
+                if not os.path.isdir(full):
+                    continue
+                for root, dirs, files in os.walk(full):
+                    if 'autologin-config.js' in files or 'autologin-page.html' in files:
+                        return entry
+                    depth = root[len(full):].count(os.sep)
+                    if depth > 3:
+                        dirs.clear()
+        return None
+
+    def _trigger_distribte_cdp(self, debug_port, pid):
+        """Try to open Distribte popup via Chrome DevTools Protocol."""
         try:
             req = Request(f'http://127.0.0.1:{debug_port}/json')
             with urlopen(req, timeout=3) as r:
                 targets = json.loads(r.read().decode())
         except Exception:
-            return
+            self._log(f'[Dist] PID {pid}: CDP /json failed on port {debug_port}')
+            return False
 
         ext_id = None
         for t in targets:
             url = t.get('url', '')
             title = t.get('title', '')
-            if url.startswith('chrome-extension://') and ('distribte' in url.lower() or 'distribte' in title.lower()):
-                ext_id = url.split('//')[1].split('/')[0]
-                break
+            if url.startswith('chrome-extension://'):
+                candidate = url.split('//')[1].split('/')[0]
+                if 'distribte' in url.lower() or 'distribte' in title.lower():
+                    ext_id = candidate
+                    break
+                if 'background' in url.lower() or 'autologin' in url.lower():
+                    ext_id = candidate
+                    break
 
         if not ext_id:
             for t in targets:
                 url = t.get('url', '')
-                if url.startswith('chrome-extension://') and 'background' in url.lower():
+                if url.startswith('chrome-extension://'):
                     ext_id = url.split('//')[1].split('/')[0]
                     break
 
@@ -2757,36 +2851,34 @@ class MLMApp:
                 with urlopen(req2, timeout=2) as r2:
                     ver = json.loads(r2.read().decode())
                 browser_ws = ver.get('webSocketDebuggerUrl', '')
-                if not browser_ws:
-                    return
-                browser_path = '/' + browser_ws.replace('ws://', '').split('/', 1)[-1]
-                ws = _RawWS('127.0.0.1', debug_port, browser_path, timeout=5)
-                ws.send(json.dumps({'id': 50, 'method': 'Target.getTargets'}))
-                result = self._cdp_read_response(ws, 50)
-                ws.close()
-                if result:
-                    for t in result.get('result', {}).get('targetInfos', []):
-                        url = t.get('url', '')
-                        title = t.get('title', '')
-                        if url.startswith('chrome-extension://') and ('distribte' in url.lower() or 'distribte' in title.lower() or 'background' in url.lower()):
-                            ext_id = url.split('//')[1].split('/')[0]
-                            break
+                if browser_ws:
+                    browser_path = '/' + browser_ws.replace('ws://', '').split('/', 1)[-1]
+                    ws = _RawWS('127.0.0.1', debug_port, browser_path, timeout=5)
+                    ws.send(json.dumps({'id': 50, 'method': 'Target.getTargets'}))
+                    result = self._cdp_read_response(ws, 50)
+                    ws.close()
+                    if result:
+                        for t in result.get('result', {}).get('targetInfos', []):
+                            url = t.get('url', '')
+                            if url.startswith('chrome-extension://'):
+                                ext_id = url.split('//')[1].split('/')[0]
+                                break
             except Exception:
                 pass
 
         if not ext_id:
-            self._log(f'[Dist] PID {pid}: extension not found')
-            return
+            self._log(f'[Dist] PID {pid}: no extension found via CDP')
+            return False
 
-        popup_url = f'chrome-extension://{ext_id}/content.html?autoclose=1&src=mlm'
-        self._log(f'[Dist] PID {pid}: opening popup {ext_id[:12]}...')
+        popup_url = f'chrome-extension://{ext_id}/autologin-page.html?autoclose=1&src=mlm'
+        self._log(f'[Dist] PID {pid}: CDP opening {ext_id[:12]}...')
         try:
             req3 = Request(f'http://127.0.0.1:{debug_port}/json/version')
             with urlopen(req3, timeout=2) as r3:
                 ver = json.loads(r3.read().decode())
             browser_ws = ver.get('webSocketDebuggerUrl', '')
             if not browser_ws:
-                return
+                return False
             browser_path = '/' + browser_ws.replace('ws://', '').split('/', 1)[-1]
             ws = _RawWS('127.0.0.1', debug_port, browser_path, timeout=5)
             ws.send(json.dumps({
@@ -2797,11 +2889,12 @@ class MLMApp:
             resp = self._cdp_read_response(ws, 60)
             ws.close()
             if resp and 'result' in resp:
-                self._log(f'[Dist] PID {pid}: popup opened successfully')
-            else:
-                self._log(f'[Dist] PID {pid}: createTarget failed')
+                self._log(f'[Dist] PID {pid}: popup opened via CDP')
+                return True
+            self._log(f'[Dist] PID {pid}: createTarget failed')
         except Exception as e:
             self._log(f'[Dist] PID {pid}: CDP error: {e}')
+        return False
 
     _CLICK_JS = ('(function(){'
         'function findBtn(root){'
