@@ -641,7 +641,7 @@ def write_distribte_config(filepath, email, password, enabled=True):
 
 
 def _patch_autologin_js(js_dir, email, password):
-    """Write improved autologin.js with direct API fallback."""
+    """Write improved autologin.js - direct API login as primary method."""
     autologin_path = os.path.join(js_dir, 'autologin.js')
     if not os.path.isfile(autologin_path):
         return
@@ -649,159 +649,142 @@ def _patch_autologin_js(js_dir, email, password):
 (function() {
   if (typeof AUTOLOGIN_CONFIG === 'undefined' || !AUTOLOGIN_CONFIG.enabled) return;
   if (AUTOLOGIN_CONFIG.email === "YOUR_EMAIL_HERE") return;
-  console.log('[AutoLogin] Starting...');
+  console.log('[AutoLogin] Starting - direct API method');
 
-  const isInTab = window.location.href.includes('chrome-extension://') && (!!window.opener || new URLSearchParams(window.location.search).has('autoclose') || new URLSearchParams(window.location.search).has('src'));
+  var isInTab = window.location.href.includes('chrome-extension://') && (!!window.opener || new URLSearchParams(window.location.search).has('autoclose') || new URLSearchParams(window.location.search).has('src'));
 
   function closeTab() {
-    if (isInTab) setTimeout(() => window.close(), 5000);
+    if (isInTab) setTimeout(function() { window.close(); }, 5000);
   }
 
-  function setVal(input, value) {
-    var nset = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-    nset.call(input, value);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
-    // Vue 3 compositionend trick
-    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
-    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: value }));
-  }
-
-  function checkAndLogout() {
+  function checkAlreadyLoggedIn() {
     var bodyText = document.body.innerText || '';
     var m = bodyText.match(/logged in as\s+([^\s]+@[^\s]+)/i);
     if (m) {
       if (m[1].toLowerCase().trim() === AUTOLOGIN_CONFIG.email.toLowerCase().trim()) {
+        console.log('[AutoLogin] Already logged in correctly');
         closeTab();
-        return 'correct_account';
+        return true;
       }
+      // Wrong account - try logout
       var buttons = document.querySelectorAll('button');
       for (var b of buttons) {
         var t = b.textContent.trim().toUpperCase();
-        if (t === 'LOGOUT' || t === 'LOG OUT') { b.click(); return true; }
+        if (t === 'LOGOUT' || t === 'LOG OUT') {
+          b.click();
+          setTimeout(doDirectApiLogin, 2000);
+          return true;
+        }
       }
     }
     return false;
   }
 
   function doDirectApiLogin() {
-    console.log('[AutoLogin] Trying direct API login...');
+    console.log('[AutoLogin] Direct API login as ' + AUTOLOGIN_CONFIG.email);
     fetch('https://api.distribteportal.com/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: AUTOLOGIN_CONFIG.email, password: AUTOLOGIN_CONFIG.password })
     }).then(function(r) {
       if (r.ok) return r.json();
-      throw new Error('HTTP ' + r.status);
+      throw new Error('Login failed: HTTP ' + r.status);
     }).then(function(data) {
-      console.log('[AutoLogin] API login success');
-      if ((data.token || data.access_token) && typeof chrome !== 'undefined' && chrome.storage) {
+      console.log('[AutoLogin] API login SUCCESS');
+      var token = data.token || data.access_token;
+      if (token && typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
         chrome.storage.local.set({
-          auth_token: data.token || data.access_token,
+          auth_token: token,
           user: data.user || { email: AUTOLOGIN_CONFIG.email }
+        }, function() {
+          console.log('[AutoLogin] Token stored, reloading...');
+          closeTab();
+          setTimeout(function() { location.reload(); }, 1500);
         });
+      } else {
+        console.log('[AutoLogin] Token received but no chrome.storage');
+        closeTab();
+        setTimeout(function() { location.reload(); }, 1500);
       }
-      closeTab();
-      // Reload popup to show logged-in state
-      setTimeout(function() { location.reload(); }, 1500);
     }).catch(function(e) {
-      console.log('[AutoLogin] API login failed:', e);
+      console.log('[AutoLogin] API login failed:', e.message);
+      // Fallback: try form filling
+      tryFormLogin();
     });
   }
 
-  function tryAutoLogin() {
-    var lr = checkAndLogout();
-    if (lr === 'correct_account') return true;
-
+  function tryFormLogin() {
+    console.log('[AutoLogin] Trying form login fallback...');
     var emailInput = document.querySelector('input[type="email"]')
-      || document.querySelector('input[placeholder*="Email" i]')
-      || document.querySelector('input[placeholder*="mail" i]');
+      || document.querySelector('input[placeholder*="Email" i]');
     if (!emailInput) {
       var textInputs = document.querySelectorAll('input[type="text"]');
       for (var inp of textInputs) {
-        if (!inp.value || (inp.placeholder && inp.placeholder.toLowerCase().includes('email'))) {
+        if (inp.placeholder && inp.placeholder.toLowerCase().includes('email')) {
           emailInput = inp; break;
         }
       }
     }
     var passwordInput = document.querySelector('input[type="password"]');
+    if (!emailInput || !passwordInput) return;
 
-    // Find login button - broader search
-    var allClickable = document.querySelectorAll('button, [type="submit"], [role="button"], a.btn, .btn');
-    var loginBtn = null;
-    for (var el of allClickable) {
-      var txt = (el.textContent || el.innerText || '').trim().toUpperCase();
-      if (txt === 'LOGIN' || txt === 'LOG IN' || txt === 'SIGN IN' || txt === 'SUBMIT' || txt === 'ENTER' || txt === 'INICIAR') {
-        loginBtn = el; break;
+    // Set values using Vue-compatible method
+    function setVal(input, value) {
+      input.focus();
+      // Clear first
+      var nset = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      nset.call(input, '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      // Now set value
+      nset.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      // Try Vue 2 __vue__ instance
+      var el = input.closest('[data-v-]') || input.parentElement;
+      while (el) {
+        if (el.__vue__) {
+          try {
+            var vm = el.__vue__;
+            if (vm.$data) {
+              for (var key in vm.$data) {
+                if (key.toLowerCase().includes('email') || key.toLowerCase().includes('mail')) {
+                  vm.$data[key] = AUTOLOGIN_CONFIG.email;
+                }
+                if (key.toLowerCase().includes('pass') || key.toLowerCase().includes('pwd')) {
+                  vm.$data[key] = AUTOLOGIN_CONFIG.password;
+                }
+              }
+            }
+          } catch(e) {}
+          break;
+        }
+        el = el.parentElement;
       }
     }
-    // Last resort: find first non-logout button
-    if (!loginBtn && emailInput && passwordInput) {
-      var btns = document.querySelectorAll('button[type="submit"], form button');
-      if (btns.length > 0) loginBtn = btns[0];
-    }
 
-    if (emailInput && passwordInput) {
-      console.log('[AutoLogin] Form found, filling...');
-      emailInput.focus();
-      setVal(emailInput, AUTOLOGIN_CONFIG.email);
-
+    setVal(emailInput, AUTOLOGIN_CONFIG.email);
+    setTimeout(function() {
+      setVal(passwordInput, AUTOLOGIN_CONFIG.password);
       setTimeout(function() {
-        passwordInput.focus();
-        setVal(passwordInput, AUTOLOGIN_CONFIG.password);
-
-        setTimeout(function() {
-          if (loginBtn) {
-            console.log('[AutoLogin] Clicking:', loginBtn.textContent.trim());
-            loginBtn.removeAttribute('disabled');
-            loginBtn.classList.remove('disabled');
-            loginBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-            setTimeout(function() {
-              loginBtn.click();
-              // Try form submit
-              var form = emailInput.closest('form') || passwordInput.closest('form');
-              if (form) {
-                setTimeout(function() {
-                  console.log('[AutoLogin] Submitting form...');
-                  form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-                  try { form.submit(); } catch(e) {}
-                }, 300);
-              }
-              // Direct API fallback after 3 seconds
-              setTimeout(function() {
-                var bodyText = document.body.innerText || '';
-                if (!bodyText.match(/logged in as/i)) {
-                  doDirectApiLogin();
-                } else {
-                  closeTab();
-                }
-              }, 3000);
-            }, 200);
-          } else {
-            console.log('[AutoLogin] No button found, trying API...');
-            doDirectApiLogin();
+        // Find and click login button
+        var allEl = document.querySelectorAll('button, [type="submit"], [role="button"]');
+        for (var btn of allEl) {
+          var txt = (btn.textContent || '').trim().toUpperCase();
+          if (txt === 'LOGIN' || txt === 'LOG IN' || txt === 'SIGN IN' || txt.includes('LOGIN')) {
+            btn.removeAttribute('disabled');
+            btn.classList.remove('disabled');
+            btn.click();
+            break;
           }
-        }, 500);
-      }, 300);
-      return true;
-    }
-
-    return false;
+        }
+      }, 500);
+    }, 300);
   }
 
-  console.log('[AutoLogin] Waiting for Vue mount...');
+  // Wait for page to load, then do direct API login
   setTimeout(function() {
-    if (tryAutoLogin()) return;
-    var attempts = 0;
-    var iv = setInterval(function() {
-      attempts++;
-      if (tryAutoLogin() || attempts >= 30) {
-        clearInterval(iv);
-        if (attempts >= 30) doDirectApiLogin();
-      }
-    }, 500);
+    if (checkAlreadyLoggedIn()) return;
+    doDirectApiLogin();
   }, 2000);
 })();
 """
