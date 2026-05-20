@@ -200,7 +200,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0.25"
+VERSION = "1.0.26"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -816,6 +816,7 @@ class MLMApp:
         self.pid_profile_cache = {}  # pid -> profile_name
         self.uid_map = {}  # user_id -> custom_number (permanent, like AutoIt $GUIDMAP)
         self.mlxpid_cache = {}  # pid -> bool (is MultiloginX browser)
+        self.mlxpid_cache_time = 0
         self.cmdline_cache = {}  # pid -> cmdline
         self.cmdline_cache_time = 0
         self.debug_log = []
@@ -1585,15 +1586,13 @@ class MLMApp:
                 chrome_count = len([w for w in all_wins if w[2] == CHROME_CLASS])
                 self._log(f'  MultiloginX PIDs: {len(mlx_pids)}, Chrome wins: {chrome_count}, Other wins: {len(non_chrome)}')
 
-        # Refresh cmdline cache every 30s (profile cache stays permanent like AutoIt)
         now = time.time()
         if now - self.cmdline_cache_time > 30:
             self.cmdline_cache.clear()
             self.cmdline_cache_time = now
-
-        # Budget for API calls per cycle (matches AutoIt $GRESOLVEBUDGET)
-        resolve_budget = 3
-        new_budget = 10  # Max new profiles per cycle
+        if now - self.mlxpid_cache_time > 60:
+            self.mlxpid_cache.clear()
+            self.mlxpid_cache_time = now
 
         for hwnd, title in chrome_windows:
             pid = get_window_pid(hwnd)
@@ -2474,7 +2473,7 @@ class MLMApp:
         def poll_loop():
             while self.running:
                 self._get_browsers()
-                time.sleep(1.5)  # Smoother than AutoIt's 1000ms
+                time.sleep(0.8)
 
         threading.Thread(target=poll_loop, daemon=True).start()
 
