@@ -200,7 +200,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0.26"
+VERSION = "1.0.27"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -1612,14 +1612,6 @@ class MLMApp:
             # Skip small popup/overlay windows (extension popups, notifications, etc.)
             w, h = get_window_size(hwnd)
             if w > 0 and h > 0 and (w < 400 or h < 300):
-                continue
-
-            # Skip extension/devtools windows by title
-            title_lower = title.lower()
-            if any(skip in title_lower for skip in [
-                'distribte-extension', 'distribte extension', 'distribte auto login',
-                'chrome-extension://', 'devtools', 'extensions'
-            ]):
                 continue
 
             # Extract profile name and tab title from window title
