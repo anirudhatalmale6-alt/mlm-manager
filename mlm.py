@@ -200,7 +200,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0.24"
+VERSION = "1.0.25"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -431,6 +431,18 @@ def get_mlx_profileid_from_cmdline(cmdline):
     if m:
         return m.group(1).strip()
     return ''
+
+
+def get_window_size(hwnd):
+    """Get (width, height) of a window. Returns (0, 0) on failure."""
+    if not HAS_WIN32:
+        return (0, 0)
+    try:
+        rect = ctypes.wintypes.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        return (rect.right - rect.left, rect.bottom - rect.top)
+    except Exception:
+        return (0, 0)
 
 
 def force_foreground(hwnd):
@@ -1598,7 +1610,12 @@ class MLMApp:
             if not self.mlxpid_cache[pid]:
                 continue
 
-            # Skip extension popup/overlay windows
+            # Skip small popup/overlay windows (extension popups, notifications, etc.)
+            w, h = get_window_size(hwnd)
+            if w > 0 and h > 0 and (w < 400 or h < 300):
+                continue
+
+            # Skip extension/devtools windows by title
             title_lower = title.lower()
             if any(skip in title_lower for skip in [
                 'distribte-extension', 'distribte extension', 'distribte auto login',
