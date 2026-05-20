@@ -162,6 +162,8 @@ try:
     user32.PostMessageW.restype = BOOL
     user32.GetWindowRect.argtypes = [HWND, ctypes.POINTER(ctypes.wintypes.RECT)]
     user32.GetWindowRect.restype = BOOL
+    user32.GetWindowLongW.argtypes = [HWND, ctypes.c_int]
+    user32.GetWindowLongW.restype = ctypes.c_long
     user32.OpenClipboard.argtypes = [HWND]
     user32.OpenClipboard.restype = BOOL
     user32.EmptyClipboard.restype = BOOL
@@ -200,7 +202,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0.27"
+VERSION = "1.0.28"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -433,16 +435,25 @@ def get_mlx_profileid_from_cmdline(cmdline):
     return ''
 
 
-def get_window_size(hwnd):
-    """Get (width, height) of a window. Returns (0, 0) on failure."""
+GWL_EXSTYLE = -20
+WS_EX_TOOLWINDOW = 0x00000080
+WS_EX_NOACTIVATE = 0x08000000
+
+def is_popup_window(hwnd):
+    """Check if a window is a popup/overlay (not a real browser window).
+    Extension popups, notifications, and overlays are TOOLWINDOW or NOACTIVATE
+    style - they don't appear in the taskbar. Real browser windows do."""
     if not HAS_WIN32:
-        return (0, 0)
+        return False
     try:
-        rect = ctypes.wintypes.RECT()
-        user32.GetWindowRect(hwnd, ctypes.byref(rect))
-        return (rect.right - rect.left, rect.bottom - rect.top)
+        ex_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        if ex_style & WS_EX_TOOLWINDOW:
+            return True
+        if ex_style & WS_EX_NOACTIVATE:
+            return True
+        return False
     except Exception:
-        return (0, 0)
+        return False
 
 
 def force_foreground(hwnd):
@@ -1609,9 +1620,8 @@ class MLMApp:
             if not self.mlxpid_cache[pid]:
                 continue
 
-            # Skip small popup/overlay windows (extension popups, notifications, etc.)
-            w, h = get_window_size(hwnd)
-            if w > 0 and h > 0 and (w < 400 or h < 300):
+            # Skip popup/overlay windows (extension popups, notifications, etc.)
+            if is_popup_window(hwnd):
                 continue
 
             # Extract profile name and tab title from window title
