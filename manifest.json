@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "TM Passkey Manager",
+  "version": "1.0.0",
+  "description": "Virtual authenticator for Ticketmaster passkeys. Acts as a device lock so hardware biometrics are not needed.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.ticketmaster.com/*",
+    "*://*.ticketmaster.ca/*",
+    "*://*.ticketmaster.co.uk/*",
+    "*://*.ticketmaster.com.au/*",
+    "*://*.livenation.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.ticketmaster.com/*",
+        "*://*.ticketmaster.ca/*",
+        "*://*.ticketmaster.co.uk/*",
+        "*://*.ticketmaster.com.au/*",
+        "*://*.livenation.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "*://*.ticketmaster.com/*",
+        "*://*.ticketmaster.ca/*",
+        "*://*.ticketmaster.co.uk/*",
+        "*://*.ticketmaster.com.au/*",
+        "*://*.livenation.com/*"
+      ],
+      "js": [
+        "inject.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TM Passkey Manager",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

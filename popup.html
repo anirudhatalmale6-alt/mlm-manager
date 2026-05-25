@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  width: 380px;
+  min-height: 200px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  padding: 16px;
+}
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #333;
+}
+.header h1 {
+  font-size: 16px;
+  color: #fff;
+}
+.header .icon {
+  width: 24px;
+  height: 24px;
+  background: #0066ff;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: #16213e;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.status .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #00c853;
+}
+.empty {
+  text-align: center;
+  padding: 24px 0;
+  color: #888;
+  font-size: 13px;
+}
+.cred-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cred-card {
+  background: #16213e;
+  border-radius: 8px;
+  padding: 12px;
+  position: relative;
+}
+.cred-card .rp {
+  font-size: 13px;
+  font-weight: 600;
+  color: #64b5f6;
+  margin-bottom: 2px;
+}
+.cred-card .user {
+  font-size: 12px;
+  color: #aaa;
+  margin-bottom: 6px;
+}
+.cred-card .meta {
+  font-size: 11px;
+  color: #666;
+  display: flex;
+  gap: 12px;
+}
+.cred-card .delete-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #f44336;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.cred-card .delete-btn:hover {
+  background: rgba(244,67,54,0.15);
+}
+.actions {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #333;
+  display: flex;
+  gap: 8px;
+}
+.actions button {
+  flex: 1;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 500;
+}
+.btn-danger {
+  background: #c62828;
+  color: #fff;
+}
+.btn-danger:hover { background: #e53935; }
+.btn-secondary {
+  background: #333;
+  color: #e0e0e0;
+}
+.btn-secondary:hover { background: #444; }
+.count {
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 8px;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="icon">🔑</div>
+  <h1>TM Passkey Manager</h1>
+</div>
+
+<div class="status">
+  <div class="dot"></div>
+  <span>Virtual authenticator active on Ticketmaster sites</span>
+</div>
+
+<div class="count" id="count"></div>
+<div class="cred-list" id="credList"></div>
+<div class="empty" id="empty" style="display:none">
+  No passkeys stored yet.<br>
+  Visit Ticketmaster and click "Add Passkey" to create one.
+</div>
+
+<div class="actions">
+  <button class="btn-secondary" id="refreshBtn">Refresh</button>
+  <button class="btn-danger" id="clearBtn">Clear All</button>
+</div>
+
+<script>
+function formatDate(ts) {
+  if (!ts) return 'Unknown';
+  return new Date(ts).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  });
+}
+
+function loadCredentials() {
+  chrome.runtime.sendMessage({ type: 'PASSKEY_LIST' }, (resp) => {
+    const list = document.getElementById('credList');
+    const empty = document.getElementById('empty');
+    const count = document.getElementById('count');
+    list.innerHTML = '';
+
+    if (!resp || !resp.ok || !resp.credentials.length) {
+      empty.style.display = 'block';
+      count.textContent = '';
+      return;
+    }
+
+    empty.style.display = 'none';
+    count.textContent = resp.credentials.length + ' passkey(s) stored';
+
+    for (const c of resp.credentials) {
+      const card = document.createElement('div');
+      card.className = 'cred-card';
+      card.innerHTML = `
+        <div class="rp">${esc(c.rpName || c.rpId)}</div>
+        <div class="user">${esc(c.userName || 'Unknown user')}</div>
+        <div class="meta">
+          <span>Created: ${formatDate(c.createdAt)}</span>
+          <span>Used: ${c.signCount || 0}x</span>
+        </div>
+        <button class="delete-btn" title="Delete this passkey">✕</button>
+      `;
+      card.querySelector('.delete-btn').addEventListener('click', () => {
+        if (confirm('Delete this passkey?')) {
+          chrome.runtime.sendMessage({
+            type: 'PASSKEY_DELETE',
+            rpId: c.rpId,
+            credId: c.credId
+          }, () => loadCredentials());
+        }
+      });
+      list.appendChild(card);
+    }
+  });
+}
+
+function esc(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+document.getElementById('refreshBtn').addEventListener('click', loadCredentials);
+document.getElementById('clearBtn').addEventListener('click', () => {
+  if (confirm('Delete ALL stored passkeys?')) {
+    chrome.runtime.sendMessage({ type: 'PASSKEY_DELETE_ALL' }, () => loadCredentials());
+  }
+});
+
+loadCredentials();
+</script>
+</body>
+</html>
