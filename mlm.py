@@ -269,10 +269,8 @@ def load_config():
             'GapX': '0', 'GapY': '0', 'URL': 'https://www.ticketmaster.com',
         },
         'SMS': {
-            'SwProjectID': 'e4ca4933-acfd-411c-af15-173b8aef9cdc',
-            'SwApiToken': 'PT2487b8dde629b34b16bc9b4495ab1344874d183a0d3d3b70',
-            'SwSpaceUrl': 'nickets-llc.signalwire.com',
-            'SwAreaCode': '202',
+            'TvApiUsername': '',
+            'TvApiKey': '',
         },
     }
     for section, vals in defaults.items():
@@ -1511,8 +1509,9 @@ class MLMApp:
 
     def _build_sms_tab(self):
         f = self.tab_sms
+        self._tv_token = None
+        self._tv_token_exp = 0
 
-        # Config button (hidden settings - no provider branding visible)
         top_row = tk.Frame(f)
         top_row.pack(fill='x', padx=6, pady=(6, 2))
         tk.Button(top_row, text='Settings', font=('', 7), fg='gray',
@@ -1520,12 +1519,11 @@ class MLMApp:
 
         self.sms_conn_label = tk.Label(top_row, text='', font=('', 7), fg='gray')
         self.sms_conn_label.pack(side='left')
-        if self.cfg.get('SMS', 'SwProjectID', fallback=''):
+        if self.cfg.get('SMS', 'TvApiKey', fallback=''):
             self.sms_conn_label.config(text='Connected', fg='green')
         else:
             self.sms_conn_label.config(text='Not configured - click Settings', fg='orange')
 
-        # Add Number row
         add_frame = tk.LabelFrame(f, text='Add Number to Profile', font=('', 8, 'bold'))
         add_frame.pack(fill='x', padx=6, pady=(4, 2))
 
@@ -1538,11 +1536,9 @@ class MLMApp:
         self.sms_gen_status = tk.Label(add_frame, text='', font=('', 7), fg='gray')
         self.sms_gen_status.grid(row=1, column=0, columnspan=3, sticky='w', padx=4)
 
-        # Profile list with assigned numbers
         list_frame = tk.LabelFrame(f, text='Profiles', font=('', 8, 'bold'))
         list_frame.pack(fill='both', expand=True, padx=6, pady=(4, 2))
 
-        # Search bar
         search_row = tk.Frame(list_frame)
         search_row.pack(fill='x', padx=4, pady=(4, 0))
         tk.Label(search_row, text='Search:', font=('', 8)).pack(side='left')
@@ -1574,7 +1570,6 @@ class MLMApp:
 
         self.sms_tree.bind('<Double-1>', self._sms_on_double_click)
 
-        # Action buttons row
         action_frame = tk.Frame(f)
         action_frame.pack(fill='x', padx=6, pady=(0, 4))
         tk.Button(action_frame, text='View SMS', font=('', 8),
@@ -1589,80 +1584,99 @@ class MLMApp:
     def _sms_show_settings(self):
         win = tk.Toplevel(self.root)
         win.title('SMS Settings')
-        win.geometry('380x220')
+        win.geometry('380x160')
         win.transient(self.root)
         win.grab_set()
 
-        tk.Label(win, text='Server:', font=('', 8)).grid(row=0, column=0, sticky='w', padx=8, pady=4)
-        e_space = tk.Entry(win, font=('', 8), width=35)
-        e_space.insert(0, self.cfg.get('SMS', 'SwSpaceUrl', fallback=''))
-        e_space.grid(row=0, column=1, padx=8, pady=4, sticky='ew')
+        tk.Label(win, text='Username:', font=('', 8)).grid(row=0, column=0, sticky='w', padx=8, pady=4)
+        e_user = tk.Entry(win, font=('', 8), width=35)
+        e_user.insert(0, self.cfg.get('SMS', 'TvApiUsername', fallback=''))
+        e_user.grid(row=0, column=1, padx=8, pady=4, sticky='ew')
 
-        tk.Label(win, text='ID:', font=('', 8)).grid(row=1, column=0, sticky='w', padx=8, pady=4)
-        e_sid = tk.Entry(win, font=('', 8), width=35, show='*')
-        e_sid.insert(0, self.cfg.get('SMS', 'SwProjectID', fallback=''))
-        e_sid.grid(row=1, column=1, padx=8, pady=4, sticky='ew')
-
-        tk.Label(win, text='Key:', font=('', 8)).grid(row=2, column=0, sticky='w', padx=8, pady=4)
-        e_token = tk.Entry(win, font=('', 8), width=35, show='*')
-        e_token.insert(0, self.cfg.get('SMS', 'SwApiToken', fallback=''))
-        e_token.grid(row=2, column=1, padx=8, pady=4, sticky='ew')
-
-        tk.Label(win, text='Area Code:', font=('', 8)).grid(row=3, column=0, sticky='w', padx=8, pady=4)
-        e_area = tk.Entry(win, font=('', 8), width=8)
-        e_area.insert(0, self.cfg.get('SMS', 'SwAreaCode', fallback='202'))
-        e_area.grid(row=3, column=1, padx=8, pady=4, sticky='w')
+        tk.Label(win, text='API Key:', font=('', 8)).grid(row=1, column=0, sticky='w', padx=8, pady=4)
+        e_key = tk.Entry(win, font=('', 8), width=35, show='*')
+        e_key.insert(0, self.cfg.get('SMS', 'TvApiKey', fallback=''))
+        e_key.grid(row=1, column=1, padx=8, pady=4, sticky='ew')
 
         def do_save():
-            self.cfg.set('SMS', 'SwSpaceUrl', e_space.get().strip())
-            self.cfg.set('SMS', 'SwProjectID', e_sid.get().strip())
-            self.cfg.set('SMS', 'SwApiToken', e_token.get().strip())
-            self.cfg.set('SMS', 'SwAreaCode', e_area.get().strip())
+            self.cfg.set('SMS', 'TvApiUsername', e_user.get().strip())
+            self.cfg.set('SMS', 'TvApiKey', e_key.get().strip())
             save_config(self.cfg)
+            self._tv_token = None
+            self._tv_token_exp = 0
             self.sms_conn_label.config(text='Connected', fg='green')
             self.sms_gen_status.config(text='Config saved', fg='green')
             win.destroy()
 
         def do_test():
             def _test():
-                resp, err = self._sms_api_request('GET', '.json')
+                token, err = self._tv_get_token()
                 if err:
                     self.root.after(0, lambda: messagebox.showwarning('Test', f'Error: {err[:80]}', parent=win))
+                    return
+                resp, err2 = self._tv_api('GET', '/api/pub/v2/account/me')
+                if err2:
+                    self.root.after(0, lambda: messagebox.showwarning('Test', f'Error: {err2[:80]}', parent=win))
                 else:
-                    name = resp.get('friendly_name', 'OK')
-                    self.root.after(0, lambda: messagebox.showinfo('Test', f'Connected: {name}', parent=win))
+                    bal = resp.get('currentBalance', '?')
+                    user = resp.get('username', 'OK')
+                    self.root.after(0, lambda: messagebox.showinfo('Test', f'Connected: {user}\nBalance: ${bal}', parent=win))
             threading.Thread(target=_test, daemon=True).start()
 
         btn_frame = tk.Frame(win)
-        btn_frame.grid(row=4, column=0, columnspan=2, pady=8)
+        btn_frame.grid(row=2, column=0, columnspan=2, pady=8)
         tk.Button(btn_frame, text='Save', font=('', 8), command=do_save).pack(side='left', padx=8)
         tk.Button(btn_frame, text='Test', font=('', 8), command=do_test).pack(side='left', padx=8)
 
         win.columnconfigure(1, weight=1)
 
-    def _sms_api_request(self, method, path, data=None):
-        project_id = self.cfg.get('SMS', 'SwProjectID', fallback='')
-        api_token = self.cfg.get('SMS', 'SwApiToken', fallback='')
-        space_url = self.cfg.get('SMS', 'SwSpaceUrl', fallback='')
-        if not project_id or not api_token or not space_url:
+    def _tv_get_token(self):
+        if self._tv_token and time.time() < self._tv_token_exp:
+            return self._tv_token, None
+        username = self.cfg.get('SMS', 'TvApiUsername', fallback='')
+        api_key = self.cfg.get('SMS', 'TvApiKey', fallback='')
+        if not username or not api_key:
             return None, 'SMS credentials not configured'
-        space = space_url.replace('https://', '').replace('http://', '').rstrip('/')
-        url = f'https://{space}/api/laml/2010-04-01/Accounts/{project_id}{path}'
-        auth = _b64_mod.b64encode(f'{project_id}:{api_token}'.encode()).decode()
-        headers = {'Authorization': f'Basic {auth}'}
+        try:
+            url = 'https://www.textverified.com/api/pub/v2/auth'
+            req = Request(url, data=b'', method='POST')
+            req.add_header('X-API-USERNAME', username)
+            req.add_header('X-API-KEY', api_key)
+            req.add_header('Content-Type', 'application/json')
+            with urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode())
+            self._tv_token = data.get('token', '')
+            expires_in = data.get('expiresIn', 800)
+            self._tv_token_exp = time.time() + expires_in - 30
+            return self._tv_token, None
+        except Exception as e:
+            err_str = str(e)
+            if hasattr(e, 'read'):
+                try:
+                    err_str = e.read().decode()
+                except Exception:
+                    pass
+            return None, err_str
+
+    def _tv_api(self, method, path, body=None):
+        token, err = self._tv_get_token()
+        if err:
+            return None, err
+        url = f'https://www.textverified.com{path}'
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Accept': 'application/json',
+        }
         try:
             if method == 'GET':
-                if data:
-                    url += '?' + urlencode(data)
                 req = Request(url, headers=headers)
             elif method == 'POST':
-                body = urlencode(data).encode() if data else b''
-                req = Request(url, data=body, headers=headers, method='POST')
-            elif method == 'DELETE':
-                req = Request(url, headers=headers, method='DELETE')
+                payload = json.dumps(body).encode() if body else b''
+                req = Request(url, data=payload, headers=headers, method='POST')
+                req.add_header('Content-Type', 'application/json')
             else:
                 return None, f'Unknown method {method}'
-            with urlopen(req, timeout=15) as resp:
+            with urlopen(req, timeout=20) as resp:
                 raw = resp.read().decode()
                 if raw:
                     return json.loads(raw), None
@@ -1676,18 +1690,6 @@ class MLMApp:
                     pass
             return None, err_str
 
-    def _sms_test_conn(self):
-        def do_test():
-            self.sms_gen_status.config(text='Testing...', fg='gray')
-            resp, err = self._sms_api_request('GET', '.json')
-            if err:
-                self.root.after(0, self.sms_gen_status.config, {'text': f'Error: {err[:60]}', 'fg': 'red'})
-            else:
-                name = resp.get('friendly_name', 'OK')
-                self.root.after(0, self.sms_gen_status.config,
-                                {'text': f'Connected: {name}', 'fg': 'green'})
-        threading.Thread(target=do_test, daemon=True).start()
-
     def _sms_generate(self):
         pid = self.sms_pid_entry.get().strip().upper()
         if not pid:
@@ -1699,31 +1701,30 @@ class MLMApp:
 
         def do_assign():
             self.root.after(0, self.sms_gen_status.config, {'text': 'Finding available number...', 'fg': 'gray'})
-            resp, err = self._sms_api_request('GET', '/IncomingPhoneNumbers.json', {'PageSize': '200'})
+            resp, err = self._tv_api('GET', '/api/pub/v2/reservations/rental/renewable')
             if err:
                 self.root.after(0, self.sms_gen_status.config, {'text': f'Error: {err[:60]}', 'fg': 'red'})
                 return
-            all_numbers = resp.get('incoming_phone_numbers', [])
-            if not all_numbers:
+            rentals = resp.get('data', []) if isinstance(resp, dict) else (resp if isinstance(resp, list) else [])
+            active = [r for r in rentals if r.get('state', '').lower() == 'active']
+            if not active:
                 self.root.after(0, self.sms_gen_status.config,
-                                {'text': 'No numbers in your account. Buy numbers first.', 'fg': 'red'})
+                                {'text': 'No rental numbers found. Rent numbers first.', 'fg': 'red'})
                 return
 
             assigned_numbers = {info['number'] for info in self.sms_data.values()}
-            available = [n for n in all_numbers if n.get('phone_number', '') not in assigned_numbers]
+            available = [r for r in active if r.get('number', '') not in assigned_numbers]
             if not available:
                 self.root.after(0, self.sms_gen_status.config,
-                                {'text': f'All {len(all_numbers)} numbers assigned. Buy more.', 'fg': 'red'})
+                                {'text': f'All {len(active)} numbers assigned. Rent more.', 'fg': 'red'})
                 return
 
             chosen = available[0]
-            phone = chosen.get('phone_number', '')
-            number_sid = chosen.get('sid', '')
-            friendly = chosen.get('friendly_name', phone)
+            phone = chosen.get('number', '')
+            res_id = chosen.get('id', '')
             self.sms_data[pid] = {
                 'number': phone,
-                'number_sid': number_sid,
-                'friendly': friendly,
+                'reservation_id': res_id,
                 'codes': [],
                 'messages': [],
             }
@@ -1781,7 +1782,6 @@ class MLMApp:
             return
         info = self.sms_data[pid]
 
-        # Poll latest SMS first
         def do_poll_and_show():
             self._sms_poll_number(pid)
             self.root.after(0, show_window)
@@ -1864,21 +1864,20 @@ class MLMApp:
         number = info.get('number', '')
         if not number:
             return
-        resp, err = self._sms_api_request('GET', '/Messages.json',
-                                              {'To': number, 'PageSize': '20'})
+        resp, err = self._tv_api('GET', f'/api/pub/v2/sms?to={number}')
         if err or not resp:
             return
-        messages_raw = resp.get('messages', [])
-        seen_sids = {m.get('sid') for m in info.get('messages', [])}
+        messages_raw = resp.get('data', []) if isinstance(resp, dict) else (resp if isinstance(resp, list) else [])
+        seen_ids = {m.get('id') for m in info.get('messages', [])}
         new_msgs = []
         for m in messages_raw:
-            sid = m.get('sid', '')
-            if sid in seen_sids:
+            msg_id = m.get('id', '')
+            if msg_id in seen_ids:
                 continue
             body = m.get('body', '')
             frm = m.get('from', '')
-            ts = m.get('date_sent', '') or m.get('date_created', '')
-            new_msgs.append({'sid': sid, 'from': frm, 'body': body, 'time': ts})
+            ts = m.get('createdAt', '')
+            new_msgs.append({'id': msg_id, 'from': frm, 'body': body, 'time': ts})
             code = self._sms_extract_code(body)
             if code:
                 info.setdefault('codes', []).append({'code': code, 'time': ts, 'body': body})
@@ -1890,10 +1889,10 @@ class MLMApp:
     def _sms_extract_code(self, body):
         import re as _re
         patterns = [
-            r'\b(\d{4,8})\b',
+            r'G-(\d{4,8})',
             r'code[:\s]+(\d{4,8})',
             r'verification[:\s]+(\d{4,8})',
-            r'G-(\d{4,8})',
+            r'\b(\d{4,8})\b',
         ]
         for pat in patterns:
             m = _re.search(pat, body, _re.IGNORECASE)
@@ -1920,33 +1919,6 @@ class MLMApp:
         save_sms_data(self.sms_data)
         self._sms_refresh_list()
         self.sms_gen_status.config(text=f'{pid} removed', fg='gray')
-
-    def _sms_release(self):
-        pid = self._sms_get_selected_pid()
-        if not pid or pid not in self.sms_data:
-            return
-        info = self.sms_data[pid]
-        nsid = info.get('number_sid', '')
-        if not nsid:
-            messagebox.showwarning('Release', 'No Twilio number SID stored for this profile.')
-            return
-        if not messagebox.askyesno('Release Number',
-                                    f'Release {info.get("number", "")} from Twilio?\n'
-                                    f'This will cancel the number permanently.'):
-            return
-
-        def do_release():
-            self.root.after(0, self.sms_gen_status.config, {'text': 'Releasing...', 'fg': 'gray'})
-            resp, err = self._sms_api_request('DELETE', f'/IncomingPhoneNumbers/{nsid}.json')
-            if err:
-                self.root.after(0, self.sms_gen_status.config,
-                                {'text': f'Release error: {err[:60]}', 'fg': 'red'})
-                return
-            self.sms_data.pop(pid, None)
-            save_sms_data(self.sms_data)
-            self.root.after(0, self._sms_refresh_list)
-            self.root.after(0, self.sms_gen_status.config, {'text': f'{pid} number released', 'fg': 'green'})
-        threading.Thread(target=do_release, daemon=True).start()
 
     # ── BOTTOM BAR ────────────────────────────────────────────────────────────
 
