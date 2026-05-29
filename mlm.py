@@ -202,7 +202,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0.29"
+VERSION = "1.0.30"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -269,7 +269,7 @@ def load_config():
             'GapX': '0', 'GapY': '0', 'URL': 'https://www.ticketmaster.com',
         },
         'SMS': {
-            'TwilioSID': '', 'TwilioToken': '', 'TwilioAreaCode': '213',
+            'SwProjectID': '', 'SwApiToken': '', 'SwSpaceUrl': '', 'SwAreaCode': '202',
         },
     }
     for section, vals in defaults.items():
@@ -1509,27 +1509,32 @@ class MLMApp:
     def _build_sms_tab(self):
         f = self.tab_sms
 
-        # Twilio credentials row
-        cred_frame = tk.LabelFrame(f, text='Twilio Config', font=('', 8, 'bold'))
+        # SignalWire credentials row
+        cred_frame = tk.LabelFrame(f, text='SignalWire Config', font=('', 8, 'bold'))
         cred_frame.pack(fill='x', padx=6, pady=(6, 2))
 
-        tk.Label(cred_frame, text='Account SID:', font=('', 8)).grid(row=0, column=0, sticky='w', padx=4, pady=2)
+        tk.Label(cred_frame, text='Space URL:', font=('', 8)).grid(row=0, column=0, sticky='w', padx=4, pady=2)
+        self.sms_space_entry = tk.Entry(cred_frame, font=('', 8), width=30)
+        self.sms_space_entry.insert(0, self.cfg.get('SMS', 'SwSpaceUrl', fallback=''))
+        self.sms_space_entry.grid(row=0, column=1, padx=4, pady=2, sticky='ew')
+
+        tk.Label(cred_frame, text='Project ID:', font=('', 8)).grid(row=1, column=0, sticky='w', padx=4, pady=2)
         self.sms_sid_entry = tk.Entry(cred_frame, font=('', 8), width=30, show='*')
-        self.sms_sid_entry.insert(0, self.cfg.get('SMS', 'TwilioSID', fallback=''))
-        self.sms_sid_entry.grid(row=0, column=1, padx=4, pady=2, sticky='ew')
+        self.sms_sid_entry.insert(0, self.cfg.get('SMS', 'SwProjectID', fallback=''))
+        self.sms_sid_entry.grid(row=1, column=1, padx=4, pady=2, sticky='ew')
 
-        tk.Label(cred_frame, text='Auth Token:', font=('', 8)).grid(row=1, column=0, sticky='w', padx=4, pady=2)
+        tk.Label(cred_frame, text='API Token:', font=('', 8)).grid(row=2, column=0, sticky='w', padx=4, pady=2)
         self.sms_token_entry = tk.Entry(cred_frame, font=('', 8), width=30, show='*')
-        self.sms_token_entry.insert(0, self.cfg.get('SMS', 'TwilioToken', fallback=''))
-        self.sms_token_entry.grid(row=1, column=1, padx=4, pady=2, sticky='ew')
+        self.sms_token_entry.insert(0, self.cfg.get('SMS', 'SwApiToken', fallback=''))
+        self.sms_token_entry.grid(row=2, column=1, padx=4, pady=2, sticky='ew')
 
-        tk.Label(cred_frame, text='Area Code:', font=('', 8)).grid(row=2, column=0, sticky='w', padx=4, pady=2)
+        tk.Label(cred_frame, text='Area Code:', font=('', 8)).grid(row=3, column=0, sticky='w', padx=4, pady=2)
         self.sms_area_entry = tk.Entry(cred_frame, font=('', 8), width=8)
-        self.sms_area_entry.insert(0, self.cfg.get('SMS', 'TwilioAreaCode', fallback='213'))
-        self.sms_area_entry.grid(row=2, column=1, padx=4, pady=2, sticky='w')
+        self.sms_area_entry.insert(0, self.cfg.get('SMS', 'SwAreaCode', fallback='202'))
+        self.sms_area_entry.grid(row=3, column=1, padx=4, pady=2, sticky='w')
 
         btn_row = tk.Frame(cred_frame)
-        btn_row.grid(row=3, column=0, columnspan=2, pady=4)
+        btn_row.grid(row=4, column=0, columnspan=2, pady=4)
         tk.Button(btn_row, text='Save Config', font=('', 8), command=self._sms_save_config).pack(side='left', padx=4)
         tk.Button(btn_row, text='Test Connection', font=('', 8), command=self._sms_test_conn).pack(side='left', padx=4)
 
@@ -1599,19 +1604,22 @@ class MLMApp:
         self._sms_refresh_list()
 
     def _sms_save_config(self):
-        self.cfg.set('SMS', 'TwilioSID', self.sms_sid_entry.get().strip())
-        self.cfg.set('SMS', 'TwilioToken', self.sms_token_entry.get().strip())
-        self.cfg.set('SMS', 'TwilioAreaCode', self.sms_area_entry.get().strip())
+        self.cfg.set('SMS', 'SwSpaceUrl', self.sms_space_entry.get().strip())
+        self.cfg.set('SMS', 'SwProjectID', self.sms_sid_entry.get().strip())
+        self.cfg.set('SMS', 'SwApiToken', self.sms_token_entry.get().strip())
+        self.cfg.set('SMS', 'SwAreaCode', self.sms_area_entry.get().strip())
         save_config(self.cfg)
         self.sms_gen_status.config(text='Config saved', fg='green')
 
-    def _sms_twilio_request(self, method, path, data=None):
-        sid = self.cfg.get('SMS', 'TwilioSID', fallback='')
-        token = self.cfg.get('SMS', 'TwilioToken', fallback='')
-        if not sid or not token:
-            return None, 'Twilio credentials not configured'
-        url = f'https://api.twilio.com/2010-04-01/Accounts/{sid}{path}'
-        auth = _b64_mod.b64encode(f'{sid}:{token}'.encode()).decode()
+    def _sms_api_request(self, method, path, data=None):
+        project_id = self.cfg.get('SMS', 'SwProjectID', fallback='')
+        api_token = self.cfg.get('SMS', 'SwApiToken', fallback='')
+        space_url = self.cfg.get('SMS', 'SwSpaceUrl', fallback='')
+        if not project_id or not api_token or not space_url:
+            return None, 'SignalWire credentials not configured'
+        space = space_url.replace('https://', '').replace('http://', '').rstrip('/')
+        url = f'https://{space}/api/laml/2010-04-01/Accounts/{project_id}{path}'
+        auth = _b64_mod.b64encode(f'{project_id}:{api_token}'.encode()).decode()
         headers = {'Authorization': f'Basic {auth}'}
         try:
             if method == 'GET':
@@ -1642,7 +1650,7 @@ class MLMApp:
     def _sms_test_conn(self):
         def do_test():
             self.sms_gen_status.config(text='Testing...', fg='gray')
-            resp, err = self._sms_twilio_request('GET', '.json')
+            resp, err = self._sms_api_request('GET', '.json')
             if err:
                 self.root.after(0, self.sms_gen_status.config, {'text': f'Error: {err[:60]}', 'fg': 'red'})
             else:
@@ -1662,8 +1670,8 @@ class MLMApp:
 
         def do_buy():
             self.root.after(0, self.sms_gen_status.config, {'text': 'Buying number...', 'fg': 'gray'})
-            area = self.cfg.get('SMS', 'TwilioAreaCode', fallback='213')
-            resp, err = self._sms_twilio_request('GET', '/AvailablePhoneNumbers/US/Local.json',
+            area = self.cfg.get('SMS', 'SwAreaCode', fallback='202')
+            resp, err = self._sms_api_request('GET', '/AvailablePhoneNumbers/US/Local.json',
                                                   {'AreaCode': area, 'SmsEnabled': 'true', 'PageSize': '1'})
             if err:
                 self.root.after(0, self.sms_gen_status.config, {'text': f'Search error: {err[:60]}', 'fg': 'red'})
@@ -1675,7 +1683,7 @@ class MLMApp:
                 return
 
             phone = numbers[0]['phone_number']
-            resp2, err2 = self._sms_twilio_request('POST', '/IncomingPhoneNumbers.json',
+            resp2, err2 = self._sms_api_request('POST', '/IncomingPhoneNumbers.json',
                                                     {'PhoneNumber': phone})
             if err2:
                 self.root.after(0, self.sms_gen_status.config,
@@ -1828,7 +1836,7 @@ class MLMApp:
         number = info.get('number', '')
         if not number:
             return
-        resp, err = self._sms_twilio_request('GET', '/Messages.json',
+        resp, err = self._sms_api_request('GET', '/Messages.json',
                                               {'To': number, 'PageSize': '20'})
         if err or not resp:
             return
@@ -1901,7 +1909,7 @@ class MLMApp:
 
         def do_release():
             self.root.after(0, self.sms_gen_status.config, {'text': 'Releasing...', 'fg': 'gray'})
-            resp, err = self._sms_twilio_request('DELETE', f'/IncomingPhoneNumbers/{nsid}.json')
+            resp, err = self._sms_api_request('DELETE', f'/IncomingPhoneNumbers/{nsid}.json')
             if err:
                 self.root.after(0, self.sms_gen_status.config,
                                 {'text': f'Release error: {err[:60]}', 'fg': 'red'})
