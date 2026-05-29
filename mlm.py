@@ -202,7 +202,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0.30"
+VERSION = "1.0.31"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -1509,36 +1509,18 @@ class MLMApp:
     def _build_sms_tab(self):
         f = self.tab_sms
 
-        # SignalWire credentials row
-        cred_frame = tk.LabelFrame(f, text='SignalWire Config', font=('', 8, 'bold'))
-        cred_frame.pack(fill='x', padx=6, pady=(6, 2))
+        # Config button (hidden settings - no provider branding visible)
+        top_row = tk.Frame(f)
+        top_row.pack(fill='x', padx=6, pady=(6, 2))
+        tk.Button(top_row, text='Settings', font=('', 7), fg='gray',
+                  command=self._sms_show_settings).pack(side='right')
 
-        tk.Label(cred_frame, text='Space URL:', font=('', 8)).grid(row=0, column=0, sticky='w', padx=4, pady=2)
-        self.sms_space_entry = tk.Entry(cred_frame, font=('', 8), width=30)
-        self.sms_space_entry.insert(0, self.cfg.get('SMS', 'SwSpaceUrl', fallback=''))
-        self.sms_space_entry.grid(row=0, column=1, padx=4, pady=2, sticky='ew')
-
-        tk.Label(cred_frame, text='Project ID:', font=('', 8)).grid(row=1, column=0, sticky='w', padx=4, pady=2)
-        self.sms_sid_entry = tk.Entry(cred_frame, font=('', 8), width=30, show='*')
-        self.sms_sid_entry.insert(0, self.cfg.get('SMS', 'SwProjectID', fallback=''))
-        self.sms_sid_entry.grid(row=1, column=1, padx=4, pady=2, sticky='ew')
-
-        tk.Label(cred_frame, text='API Token:', font=('', 8)).grid(row=2, column=0, sticky='w', padx=4, pady=2)
-        self.sms_token_entry = tk.Entry(cred_frame, font=('', 8), width=30, show='*')
-        self.sms_token_entry.insert(0, self.cfg.get('SMS', 'SwApiToken', fallback=''))
-        self.sms_token_entry.grid(row=2, column=1, padx=4, pady=2, sticky='ew')
-
-        tk.Label(cred_frame, text='Area Code:', font=('', 8)).grid(row=3, column=0, sticky='w', padx=4, pady=2)
-        self.sms_area_entry = tk.Entry(cred_frame, font=('', 8), width=8)
-        self.sms_area_entry.insert(0, self.cfg.get('SMS', 'SwAreaCode', fallback='202'))
-        self.sms_area_entry.grid(row=3, column=1, padx=4, pady=2, sticky='w')
-
-        btn_row = tk.Frame(cred_frame)
-        btn_row.grid(row=4, column=0, columnspan=2, pady=4)
-        tk.Button(btn_row, text='Save Config', font=('', 8), command=self._sms_save_config).pack(side='left', padx=4)
-        tk.Button(btn_row, text='Test Connection', font=('', 8), command=self._sms_test_conn).pack(side='left', padx=4)
-
-        cred_frame.columnconfigure(1, weight=1)
+        self.sms_conn_label = tk.Label(top_row, text='', font=('', 7), fg='gray')
+        self.sms_conn_label.pack(side='left')
+        if self.cfg.get('SMS', 'SwProjectID', fallback=''):
+            self.sms_conn_label.config(text='Connected', fg='green')
+        else:
+            self.sms_conn_label.config(text='Not configured - click Settings', fg='orange')
 
         # Add Number row
         add_frame = tk.LabelFrame(f, text='Add Number to Profile', font=('', 8, 'bold'))
@@ -1603,13 +1585,59 @@ class MLMApp:
 
         self._sms_refresh_list()
 
-    def _sms_save_config(self):
-        self.cfg.set('SMS', 'SwSpaceUrl', self.sms_space_entry.get().strip())
-        self.cfg.set('SMS', 'SwProjectID', self.sms_sid_entry.get().strip())
-        self.cfg.set('SMS', 'SwApiToken', self.sms_token_entry.get().strip())
-        self.cfg.set('SMS', 'SwAreaCode', self.sms_area_entry.get().strip())
-        save_config(self.cfg)
-        self.sms_gen_status.config(text='Config saved', fg='green')
+    def _sms_show_settings(self):
+        win = tk.Toplevel(self.root)
+        win.title('SMS Settings')
+        win.geometry('380x220')
+        win.transient(self.root)
+        win.grab_set()
+
+        tk.Label(win, text='Server:', font=('', 8)).grid(row=0, column=0, sticky='w', padx=8, pady=4)
+        e_space = tk.Entry(win, font=('', 8), width=35)
+        e_space.insert(0, self.cfg.get('SMS', 'SwSpaceUrl', fallback=''))
+        e_space.grid(row=0, column=1, padx=8, pady=4, sticky='ew')
+
+        tk.Label(win, text='ID:', font=('', 8)).grid(row=1, column=0, sticky='w', padx=8, pady=4)
+        e_sid = tk.Entry(win, font=('', 8), width=35, show='*')
+        e_sid.insert(0, self.cfg.get('SMS', 'SwProjectID', fallback=''))
+        e_sid.grid(row=1, column=1, padx=8, pady=4, sticky='ew')
+
+        tk.Label(win, text='Key:', font=('', 8)).grid(row=2, column=0, sticky='w', padx=8, pady=4)
+        e_token = tk.Entry(win, font=('', 8), width=35, show='*')
+        e_token.insert(0, self.cfg.get('SMS', 'SwApiToken', fallback=''))
+        e_token.grid(row=2, column=1, padx=8, pady=4, sticky='ew')
+
+        tk.Label(win, text='Area Code:', font=('', 8)).grid(row=3, column=0, sticky='w', padx=8, pady=4)
+        e_area = tk.Entry(win, font=('', 8), width=8)
+        e_area.insert(0, self.cfg.get('SMS', 'SwAreaCode', fallback='202'))
+        e_area.grid(row=3, column=1, padx=8, pady=4, sticky='w')
+
+        def do_save():
+            self.cfg.set('SMS', 'SwSpaceUrl', e_space.get().strip())
+            self.cfg.set('SMS', 'SwProjectID', e_sid.get().strip())
+            self.cfg.set('SMS', 'SwApiToken', e_token.get().strip())
+            self.cfg.set('SMS', 'SwAreaCode', e_area.get().strip())
+            save_config(self.cfg)
+            self.sms_conn_label.config(text='Connected', fg='green')
+            self.sms_gen_status.config(text='Config saved', fg='green')
+            win.destroy()
+
+        def do_test():
+            def _test():
+                resp, err = self._sms_api_request('GET', '.json')
+                if err:
+                    self.root.after(0, lambda: messagebox.showwarning('Test', f'Error: {err[:80]}', parent=win))
+                else:
+                    name = resp.get('friendly_name', 'OK')
+                    self.root.after(0, lambda: messagebox.showinfo('Test', f'Connected: {name}', parent=win))
+            threading.Thread(target=_test, daemon=True).start()
+
+        btn_frame = tk.Frame(win)
+        btn_frame.grid(row=4, column=0, columnspan=2, pady=8)
+        tk.Button(btn_frame, text='Save', font=('', 8), command=do_save).pack(side='left', padx=8)
+        tk.Button(btn_frame, text='Test', font=('', 8), command=do_test).pack(side='left', padx=8)
+
+        win.columnconfigure(1, weight=1)
 
     def _sms_api_request(self, method, path, data=None):
         project_id = self.cfg.get('SMS', 'SwProjectID', fallback='')
