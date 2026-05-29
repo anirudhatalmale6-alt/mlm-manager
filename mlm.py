@@ -202,7 +202,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0.28"
+VERSION = "1.0.29"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -239,7 +239,7 @@ def load_config():
     cfg = configparser.ConfigParser()
     if os.path.exists(CONFIG_PATH):
         cfg.read(CONFIG_PATH, encoding='utf-8')
-    for s in ['MAIN', 'HOTKEYS', 'HOTKEYS2', 'DISCORD', 'POSITIONER']:
+    for s in ['MAIN', 'HOTKEYS', 'HOTKEYS2', 'DISCORD', 'POSITIONER', 'SMS']:
         if not cfg.has_section(s):
             cfg.add_section(s)
     defaults = {
@@ -268,6 +268,9 @@ def load_config():
             'Cols': '4', 'Rows': '2', 'Width': '480', 'Height': '540',
             'GapX': '0', 'GapY': '0', 'URL': 'https://www.ticketmaster.com',
         },
+        'SMS': {
+            'TwilioSID': '', 'TwilioToken': '', 'TwilioAreaCode': '213',
+        },
     }
     for section, vals in defaults.items():
         for k, v in vals.items():
@@ -279,6 +282,23 @@ def save_config(cfg):
     ensure_dirs()
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
         cfg.write(f)
+
+
+SMS_DATA_PATH = os.path.join(DATA_DIR, 'sms_numbers.json')
+
+def load_sms_data():
+    if os.path.exists(SMS_DATA_PATH):
+        try:
+            with open(SMS_DATA_PATH, 'r') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_sms_data(data):
+    ensure_dirs()
+    with open(SMS_DATA_PATH, 'w') as f:
+        json.dump(data, f, indent=2)
 
 
 # ─── Win32 Browser Management ────────────────────────────────────────────────
@@ -838,6 +858,8 @@ class MLMApp:
         self.tl_known_profiles = {}
         self.tl_known_urls = {}
         self.tl_va_name = ''
+        self.sms_data = load_sms_data()
+        self.sms_polling = False
 
         self._build_gui()
         self._load_all_settings()
@@ -880,12 +902,14 @@ class MLMApp:
         self.tab_discord = ttk.Frame(self.notebook)
         self.tab_pos = ttk.Frame(self.notebook)
         self.tab_timelog = ttk.Frame(self.notebook)
+        self.tab_sms = ttk.Frame(self.notebook)
 
         self.notebook.add(self.tab_main, text='Main')
         self.notebook.add(self.tab_settings, text='Settings')
         self.notebook.add(self.tab_discord, text='Discord')
         self.notebook.add(self.tab_pos, text='Pos')
         self.notebook.add(self.tab_timelog, text='Time')
+        self.notebook.add(self.tab_sms, text='SMS')
 
         # Hotkeys + On top vars (checkboxes placed in bottom bar)
         self.hotkeys_var = tk.BooleanVar(value=self.cfg.get('MAIN', 'AllHotkeysON') == '1')
@@ -896,6 +920,7 @@ class MLMApp:
         self._build_discord_tab()
         self._build_pos_tab()
         self._build_timelog_tab()
+        self._build_sms_tab()
         self._build_bottom_bar()
 
         self.root.protocol('WM_DELETE_WINDOW', self._on_close)
@@ -1478,6 +1503,414 @@ class MLMApp:
 
         lines += ['', '=' * 70, 'END OF REPORT', '=' * 70]
         return '\n'.join(lines)
+
+    # ── SMS TAB ───────────────────────────────────────────────────────────────
+
+    def _build_sms_tab(self):
+        f = self.tab_sms
+
+        # Twilio credentials row
+        cred_frame = tk.LabelFrame(f, text='Twilio Config', font=('', 8, 'bold'))
+        cred_frame.pack(fill='x', padx=6, pady=(6, 2))
+
+        tk.Label(cred_frame, text='Account SID:', font=('', 8)).grid(row=0, column=0, sticky='w', padx=4, pady=2)
+        self.sms_sid_entry = tk.Entry(cred_frame, font=('', 8), width=30, show='*')
+        self.sms_sid_entry.insert(0, self.cfg.get('SMS', 'TwilioSID', fallback=''))
+        self.sms_sid_entry.grid(row=0, column=1, padx=4, pady=2, sticky='ew')
+
+        tk.Label(cred_frame, text='Auth Token:', font=('', 8)).grid(row=1, column=0, sticky='w', padx=4, pady=2)
+        self.sms_token_entry = tk.Entry(cred_frame, font=('', 8), width=30, show='*')
+        self.sms_token_entry.insert(0, self.cfg.get('SMS', 'TwilioToken', fallback=''))
+        self.sms_token_entry.grid(row=1, column=1, padx=4, pady=2, sticky='ew')
+
+        tk.Label(cred_frame, text='Area Code:', font=('', 8)).grid(row=2, column=0, sticky='w', padx=4, pady=2)
+        self.sms_area_entry = tk.Entry(cred_frame, font=('', 8), width=8)
+        self.sms_area_entry.insert(0, self.cfg.get('SMS', 'TwilioAreaCode', fallback='213'))
+        self.sms_area_entry.grid(row=2, column=1, padx=4, pady=2, sticky='w')
+
+        btn_row = tk.Frame(cred_frame)
+        btn_row.grid(row=3, column=0, columnspan=2, pady=4)
+        tk.Button(btn_row, text='Save Config', font=('', 8), command=self._sms_save_config).pack(side='left', padx=4)
+        tk.Button(btn_row, text='Test Connection', font=('', 8), command=self._sms_test_conn).pack(side='left', padx=4)
+
+        cred_frame.columnconfigure(1, weight=1)
+
+        # Add Number row
+        add_frame = tk.LabelFrame(f, text='Add Number to Profile', font=('', 8, 'bold'))
+        add_frame.pack(fill='x', padx=6, pady=(4, 2))
+
+        tk.Label(add_frame, text='Profile ID:', font=('', 8)).grid(row=0, column=0, sticky='w', padx=4, pady=4)
+        self.sms_pid_entry = tk.Entry(add_frame, font=('Consolas', 9), width=12)
+        self.sms_pid_entry.grid(row=0, column=1, padx=4, pady=4)
+        tk.Button(add_frame, text='Generate', font=('', 8, 'bold'), bg='#1565c0', fg='white',
+                  command=self._sms_generate).grid(row=0, column=2, padx=4, pady=4)
+
+        self.sms_gen_status = tk.Label(add_frame, text='', font=('', 7), fg='gray')
+        self.sms_gen_status.grid(row=1, column=0, columnspan=3, sticky='w', padx=4)
+
+        # Profile list with assigned numbers
+        list_frame = tk.LabelFrame(f, text='Profiles', font=('', 8, 'bold'))
+        list_frame.pack(fill='both', expand=True, padx=6, pady=(4, 2))
+
+        # Search bar
+        search_row = tk.Frame(list_frame)
+        search_row.pack(fill='x', padx=4, pady=(4, 0))
+        tk.Label(search_row, text='Search:', font=('', 8)).pack(side='left')
+        self.sms_search_var = tk.StringVar()
+        self.sms_search_var.trace_add('write', lambda *_: self._sms_refresh_list())
+        tk.Entry(search_row, textvariable=self.sms_search_var, font=('Consolas', 9),
+                 width=15).pack(side='left', padx=4)
+        tk.Button(search_row, text='Refresh All', font=('', 7),
+                  command=self._sms_poll_all).pack(side='right', padx=2)
+
+        tree_frame = tk.Frame(list_frame)
+        tree_frame.pack(fill='both', expand=True, padx=4, pady=4)
+
+        cols = ('pid', 'number', 'last_code', 'last_time')
+        self.sms_tree = ttk.Treeview(tree_frame, columns=cols, show='headings', height=8)
+        self.sms_tree.heading('pid', text='Profile ID')
+        self.sms_tree.heading('number', text='Number')
+        self.sms_tree.heading('last_code', text='Last Code')
+        self.sms_tree.heading('last_time', text='Time')
+        self.sms_tree.column('pid', width=70, minwidth=50)
+        self.sms_tree.column('number', width=100, minwidth=80)
+        self.sms_tree.column('last_code', width=70, minwidth=50)
+        self.sms_tree.column('last_time', width=80, minwidth=60)
+
+        sb = ttk.Scrollbar(tree_frame, orient='vertical', command=self.sms_tree.yview)
+        self.sms_tree.configure(yscrollcommand=sb.set)
+        self.sms_tree.pack(side='left', fill='both', expand=True)
+        sb.pack(side='right', fill='y')
+
+        self.sms_tree.bind('<Double-1>', self._sms_on_double_click)
+
+        # Action buttons row
+        action_frame = tk.Frame(f)
+        action_frame.pack(fill='x', padx=6, pady=(0, 4))
+        tk.Button(action_frame, text='View SMS', font=('', 8),
+                  command=self._sms_view_messages).pack(side='left', padx=2)
+        tk.Button(action_frame, text='Copy Code', font=('', 8),
+                  command=self._sms_copy_code).pack(side='left', padx=2)
+        tk.Button(action_frame, text='Remove', font=('', 8), fg='red',
+                  command=self._sms_remove).pack(side='right', padx=2)
+        tk.Button(action_frame, text='Release Number', font=('', 8), fg='#c62828',
+                  command=self._sms_release).pack(side='right', padx=2)
+
+        self._sms_refresh_list()
+
+    def _sms_save_config(self):
+        self.cfg.set('SMS', 'TwilioSID', self.sms_sid_entry.get().strip())
+        self.cfg.set('SMS', 'TwilioToken', self.sms_token_entry.get().strip())
+        self.cfg.set('SMS', 'TwilioAreaCode', self.sms_area_entry.get().strip())
+        save_config(self.cfg)
+        self.sms_gen_status.config(text='Config saved', fg='green')
+
+    def _sms_twilio_request(self, method, path, data=None):
+        sid = self.cfg.get('SMS', 'TwilioSID', fallback='')
+        token = self.cfg.get('SMS', 'TwilioToken', fallback='')
+        if not sid or not token:
+            return None, 'Twilio credentials not configured'
+        url = f'https://api.twilio.com/2010-04-01/Accounts/{sid}{path}'
+        auth = _b64_mod.b64encode(f'{sid}:{token}'.encode()).decode()
+        headers = {'Authorization': f'Basic {auth}'}
+        try:
+            if method == 'GET':
+                if data:
+                    url += '?' + urlencode(data)
+                req = Request(url, headers=headers)
+            elif method == 'POST':
+                body = urlencode(data).encode() if data else b''
+                req = Request(url, data=body, headers=headers, method='POST')
+            elif method == 'DELETE':
+                req = Request(url, headers=headers, method='DELETE')
+            else:
+                return None, f'Unknown method {method}'
+            with urlopen(req, timeout=15) as resp:
+                raw = resp.read().decode()
+                if raw:
+                    return json.loads(raw), None
+                return {}, None
+        except Exception as e:
+            err_str = str(e)
+            if hasattr(e, 'read'):
+                try:
+                    err_str = e.read().decode()
+                except Exception:
+                    pass
+            return None, err_str
+
+    def _sms_test_conn(self):
+        def do_test():
+            self.sms_gen_status.config(text='Testing...', fg='gray')
+            resp, err = self._sms_twilio_request('GET', '.json')
+            if err:
+                self.root.after(0, self.sms_gen_status.config, {'text': f'Error: {err[:60]}', 'fg': 'red'})
+            else:
+                name = resp.get('friendly_name', 'OK')
+                self.root.after(0, self.sms_gen_status.config,
+                                {'text': f'Connected: {name}', 'fg': 'green'})
+        threading.Thread(target=do_test, daemon=True).start()
+
+    def _sms_generate(self):
+        pid = self.sms_pid_entry.get().strip().upper()
+        if not pid:
+            self.sms_gen_status.config(text='Enter a Profile ID', fg='red')
+            return
+        if pid in self.sms_data:
+            self.sms_gen_status.config(text=f'{pid} already has number {self.sms_data[pid]["number"]}', fg='orange')
+            return
+
+        def do_buy():
+            self.root.after(0, self.sms_gen_status.config, {'text': 'Buying number...', 'fg': 'gray'})
+            area = self.cfg.get('SMS', 'TwilioAreaCode', fallback='213')
+            resp, err = self._sms_twilio_request('GET', '/AvailablePhoneNumbers/US/Local.json',
+                                                  {'AreaCode': area, 'SmsEnabled': 'true', 'PageSize': '1'})
+            if err:
+                self.root.after(0, self.sms_gen_status.config, {'text': f'Search error: {err[:60]}', 'fg': 'red'})
+                return
+            numbers = resp.get('available_phone_numbers', [])
+            if not numbers:
+                self.root.after(0, self.sms_gen_status.config,
+                                {'text': f'No numbers available in area {area}', 'fg': 'red'})
+                return
+
+            phone = numbers[0]['phone_number']
+            resp2, err2 = self._sms_twilio_request('POST', '/IncomingPhoneNumbers.json',
+                                                    {'PhoneNumber': phone})
+            if err2:
+                self.root.after(0, self.sms_gen_status.config,
+                                {'text': f'Buy error: {err2[:60]}', 'fg': 'red'})
+                return
+
+            number_sid = resp2.get('sid', '')
+            friendly = resp2.get('friendly_name', phone)
+            self.sms_data[pid] = {
+                'number': phone,
+                'number_sid': number_sid,
+                'friendly': friendly,
+                'codes': [],
+                'messages': [],
+            }
+            save_sms_data(self.sms_data)
+            self.root.after(0, self._sms_refresh_list)
+            self.root.after(0, self.sms_gen_status.config,
+                            {'text': f'{pid} -> {phone}', 'fg': 'green'})
+            self.root.after(0, self.sms_pid_entry.delete, 0, 'end')
+
+        threading.Thread(target=do_buy, daemon=True).start()
+
+    def _sms_refresh_list(self):
+        for item in self.sms_tree.get_children():
+            self.sms_tree.delete(item)
+        search = self.sms_search_var.get().strip().upper() if hasattr(self, 'sms_search_var') else ''
+        for pid in sorted(self.sms_data.keys()):
+            if search and search not in pid.upper():
+                continue
+            info = self.sms_data[pid]
+            last_code = ''
+            last_time = ''
+            if info.get('codes'):
+                last = info['codes'][-1]
+                last_code = last.get('code', '')
+                last_time = last.get('time', '')
+            self.sms_tree.insert('', 'end', values=(pid, info.get('number', ''), last_code, last_time))
+
+    def _sms_on_double_click(self, event):
+        self._sms_view_messages()
+
+    def _sms_get_selected_pid(self):
+        sel = self.sms_tree.selection()
+        if not sel:
+            return None
+        vals = self.sms_tree.item(sel[0], 'values')
+        return vals[0] if vals else None
+
+    def _sms_copy_code(self):
+        pid = self._sms_get_selected_pid()
+        if not pid or pid not in self.sms_data:
+            return
+        info = self.sms_data[pid]
+        if not info.get('codes'):
+            self.sms_gen_status.config(text='No codes yet', fg='orange')
+            return
+        code = info['codes'][-1].get('code', '')
+        if code:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(code)
+            self.sms_gen_status.config(text=f'Copied: {code}', fg='green')
+
+    def _sms_view_messages(self):
+        pid = self._sms_get_selected_pid()
+        if not pid or pid not in self.sms_data:
+            return
+        info = self.sms_data[pid]
+
+        # Poll latest SMS first
+        def do_poll_and_show():
+            self._sms_poll_number(pid)
+            self.root.after(0, show_window)
+
+        def show_window():
+            win = tk.Toplevel(self.root)
+            win.title(f'SMS - {pid} ({info.get("number", "")})')
+            win.geometry('400x350')
+            win.transient(self.root)
+
+            tk.Label(win, text=f'Profile: {pid}  |  Number: {info.get("number", "")}',
+                     font=('Consolas', 9, 'bold')).pack(padx=6, pady=(6, 2))
+
+            text = tk.Text(win, font=('Consolas', 9), bg='#1a1a2e', fg='#e0e0e0',
+                          wrap='word', state='normal')
+            text.pack(fill='both', expand=True, padx=6, pady=4)
+
+            msgs = info.get('messages', [])
+            if not msgs:
+                text.insert('end', 'No messages yet.\n\nClick Refresh to poll Twilio.')
+            else:
+                for m in msgs:
+                    ts = m.get('time', '')
+                    frm = m.get('from', '')
+                    body = m.get('body', '')
+                    text.insert('end', f'[{ts}] From: {frm}\n', 'header')
+                    text.insert('end', f'{body}\n\n', 'body')
+                text.tag_config('header', foreground='#64b5f6')
+                text.tag_config('body', foreground='#e0e0e0')
+
+            text.config(state='disabled')
+
+            btn_frame = tk.Frame(win)
+            btn_frame.pack(fill='x', padx=6, pady=(0, 6))
+            tk.Button(btn_frame, text='Refresh', font=('', 8),
+                      command=lambda: self._sms_refresh_msg_window(pid, text, win)).pack(side='left', padx=4)
+            tk.Button(btn_frame, text='Copy Last Code', font=('', 8),
+                      command=lambda: self._sms_copy_from_window(pid)).pack(side='left', padx=4)
+
+        threading.Thread(target=do_poll_and_show, daemon=True).start()
+
+    def _sms_refresh_msg_window(self, pid, text_widget, win):
+        def do_refresh():
+            self._sms_poll_number(pid)
+            self.root.after(0, update_text)
+
+        def update_text():
+            info = self.sms_data.get(pid, {})
+            text_widget.config(state='normal')
+            text_widget.delete('1.0', 'end')
+            msgs = info.get('messages', [])
+            if not msgs:
+                text_widget.insert('end', 'No messages yet.')
+            else:
+                for m in msgs:
+                    ts = m.get('time', '')
+                    frm = m.get('from', '')
+                    body = m.get('body', '')
+                    text_widget.insert('end', f'[{ts}] From: {frm}\n', 'header')
+                    text_widget.insert('end', f'{body}\n\n', 'body')
+                text_widget.tag_config('header', foreground='#64b5f6')
+                text_widget.tag_config('body', foreground='#e0e0e0')
+            text_widget.config(state='disabled')
+            self._sms_refresh_list()
+
+        threading.Thread(target=do_refresh, daemon=True).start()
+
+    def _sms_copy_from_window(self, pid):
+        info = self.sms_data.get(pid, {})
+        if info.get('codes'):
+            code = info['codes'][-1].get('code', '')
+            if code:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(code)
+
+    def _sms_poll_number(self, pid):
+        info = self.sms_data.get(pid)
+        if not info:
+            return
+        number = info.get('number', '')
+        if not number:
+            return
+        resp, err = self._sms_twilio_request('GET', '/Messages.json',
+                                              {'To': number, 'PageSize': '20'})
+        if err or not resp:
+            return
+        messages_raw = resp.get('messages', [])
+        seen_sids = {m.get('sid') for m in info.get('messages', [])}
+        new_msgs = []
+        for m in messages_raw:
+            sid = m.get('sid', '')
+            if sid in seen_sids:
+                continue
+            body = m.get('body', '')
+            frm = m.get('from', '')
+            ts = m.get('date_sent', '') or m.get('date_created', '')
+            new_msgs.append({'sid': sid, 'from': frm, 'body': body, 'time': ts})
+            code = self._sms_extract_code(body)
+            if code:
+                info.setdefault('codes', []).append({'code': code, 'time': ts, 'body': body})
+
+        if new_msgs:
+            info.setdefault('messages', []).extend(new_msgs)
+            save_sms_data(self.sms_data)
+
+    def _sms_extract_code(self, body):
+        import re as _re
+        patterns = [
+            r'\b(\d{4,8})\b',
+            r'code[:\s]+(\d{4,8})',
+            r'verification[:\s]+(\d{4,8})',
+            r'G-(\d{4,8})',
+        ]
+        for pat in patterns:
+            m = _re.search(pat, body, _re.IGNORECASE)
+            if m:
+                return m.group(1)
+        return ''
+
+    def _sms_poll_all(self):
+        def do_poll():
+            self.root.after(0, self.sms_gen_status.config, {'text': 'Refreshing all...', 'fg': 'gray'})
+            for pid in list(self.sms_data.keys()):
+                self._sms_poll_number(pid)
+            self.root.after(0, self._sms_refresh_list)
+            self.root.after(0, self.sms_gen_status.config, {'text': 'Refreshed', 'fg': 'green'})
+        threading.Thread(target=do_poll, daemon=True).start()
+
+    def _sms_remove(self):
+        pid = self._sms_get_selected_pid()
+        if not pid:
+            return
+        if not messagebox.askyesno('Remove', f'Remove {pid} from list?\n(Number stays active on Twilio)'):
+            return
+        self.sms_data.pop(pid, None)
+        save_sms_data(self.sms_data)
+        self._sms_refresh_list()
+        self.sms_gen_status.config(text=f'{pid} removed', fg='gray')
+
+    def _sms_release(self):
+        pid = self._sms_get_selected_pid()
+        if not pid or pid not in self.sms_data:
+            return
+        info = self.sms_data[pid]
+        nsid = info.get('number_sid', '')
+        if not nsid:
+            messagebox.showwarning('Release', 'No Twilio number SID stored for this profile.')
+            return
+        if not messagebox.askyesno('Release Number',
+                                    f'Release {info.get("number", "")} from Twilio?\n'
+                                    f'This will cancel the number permanently.'):
+            return
+
+        def do_release():
+            self.root.after(0, self.sms_gen_status.config, {'text': 'Releasing...', 'fg': 'gray'})
+            resp, err = self._sms_twilio_request('DELETE', f'/IncomingPhoneNumbers/{nsid}.json')
+            if err:
+                self.root.after(0, self.sms_gen_status.config,
+                                {'text': f'Release error: {err[:60]}', 'fg': 'red'})
+                return
+            self.sms_data.pop(pid, None)
+            save_sms_data(self.sms_data)
+            self.root.after(0, self._sms_refresh_list)
+            self.root.after(0, self.sms_gen_status.config, {'text': f'{pid} number released', 'fg': 'green'})
+        threading.Thread(target=do_release, daemon=True).start()
 
     # ── BOTTOM BAR ────────────────────────────────────────────────────────────
 
