@@ -30,7 +30,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.32-${{ github.run_number }}
-          name: MLM v1.0.32 Build ${{ github.run_number }}
+          tag_name: v1.0.33-${{ github.run_number }}
+          name: MLM v1.0.33 Build ${{ github.run_number }}
           files: dist/MLM.exe
           make_latest: true

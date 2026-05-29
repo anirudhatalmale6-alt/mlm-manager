@@ -202,7 +202,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0.32"
+VERSION = "1.0.33"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -269,7 +269,10 @@ def load_config():
             'GapX': '0', 'GapY': '0', 'URL': 'https://www.ticketmaster.com',
         },
         'SMS': {
-            'SwProjectID': '', 'SwApiToken': '', 'SwSpaceUrl': '', 'SwAreaCode': '202',
+            'SwProjectID': 'e4ca4933-acfd-411c-af15-173b8aef9cdc',
+            'SwApiToken': 'PT2487b8dde629b34b16bc9b4495ab1344874d183a0d3d3b70',
+            'SwSpaceUrl': 'nickets-llc.signalwire.com',
+            'SwAreaCode': '202',
         },
     }
     for section, vals in defaults.items():
@@ -1580,8 +1583,6 @@ class MLMApp:
                   command=self._sms_copy_code).pack(side='left', padx=2)
         tk.Button(action_frame, text='Remove', font=('', 8), fg='red',
                   command=self._sms_remove).pack(side='right', padx=2)
-        tk.Button(action_frame, text='Release Number', font=('', 8), fg='#c62828',
-                  command=self._sms_release).pack(side='right', padx=2)
 
         self._sms_refresh_list()
 
@@ -1644,7 +1645,7 @@ class MLMApp:
         api_token = self.cfg.get('SMS', 'SwApiToken', fallback='')
         space_url = self.cfg.get('SMS', 'SwSpaceUrl', fallback='')
         if not project_id or not api_token or not space_url:
-            return None, 'SignalWire credentials not configured'
+            return None, 'SMS credentials not configured'
         space = space_url.replace('https://', '').replace('http://', '').rstrip('/')
         url = f'https://{space}/api/laml/2010-04-01/Accounts/{project_id}{path}'
         auth = _b64_mod.b64encode(f'{project_id}:{api_token}'.encode()).decode()
@@ -1800,7 +1801,7 @@ class MLMApp:
 
             msgs = info.get('messages', [])
             if not msgs:
-                text.insert('end', 'No messages yet.\n\nClick Refresh to poll Twilio.')
+                text.insert('end', 'No messages yet.\n\nClick Refresh to check for new messages.')
             else:
                 for m in msgs:
                     ts = m.get('time', '')
@@ -1913,7 +1914,7 @@ class MLMApp:
         pid = self._sms_get_selected_pid()
         if not pid:
             return
-        if not messagebox.askyesno('Remove', f'Remove {pid} from list?\n(Number stays active on Twilio)'):
+        if not messagebox.askyesno('Remove', f'Remove {pid} from list?\n(Number stays active)'):
             return
         self.sms_data.pop(pid, None)
         save_sms_data(self.sms_data)
