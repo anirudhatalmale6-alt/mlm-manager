@@ -269,8 +269,8 @@ def load_config():
             'GapX': '0', 'GapY': '0', 'URL': 'https://www.ticketmaster.com',
         },
         'SMS': {
-            'TvApiUsername': '',
-            'TvApiKey': '',
+            'TvApiUsername': 'chingmarkjohn12@gmail.com',
+            'TvApiKey': 'RT9tYFQIBajurTBrDuLzzfMfR1bmcOFRqsjDgTjw6tZPmdhRYOsFKeIDYFvwoZG',
         },
     }
     for section, vals in defaults.items():
@@ -1576,6 +1576,8 @@ class MLMApp:
                   command=self._sms_view_messages).pack(side='left', padx=2)
         tk.Button(action_frame, text='Copy Code', font=('', 8),
                   command=self._sms_copy_code).pack(side='left', padx=2)
+        tk.Button(action_frame, text='Export Sheet', font=('', 8),
+                  command=self._sms_export_sheet).pack(side='left', padx=2)
         tk.Button(action_frame, text='Remove', font=('', 8), fg='red',
                   command=self._sms_remove).pack(side='right', padx=2)
 
@@ -1908,6 +1910,35 @@ class MLMApp:
             self.root.after(0, self._sms_refresh_list)
             self.root.after(0, self.sms_gen_status.config, {'text': 'Refreshed', 'fg': 'green'})
         threading.Thread(target=do_poll, daemon=True).start()
+
+    def _sms_export_sheet(self):
+        if not self.sms_data:
+            self.sms_gen_status.config(text='No profiles to export', fg='orange')
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension='.csv',
+            filetypes=[('CSV files', '*.csv'), ('All files', '*.*')],
+            initialfile='sms_profiles.csv',
+        )
+        if not path:
+            return
+        try:
+            import csv
+            with open(path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Profile ID', 'Number', 'Last Code', 'Time', 'Total Codes'])
+                for pid in sorted(self.sms_data.keys()):
+                    info = self.sms_data[pid]
+                    last_code = ''
+                    last_time = ''
+                    codes = info.get('codes', [])
+                    if codes:
+                        last_code = codes[-1].get('code', '')
+                        last_time = codes[-1].get('time', '')
+                    writer.writerow([pid, info.get('number', ''), last_code, last_time, len(codes)])
+            self.sms_gen_status.config(text=f'Exported to {os.path.basename(path)}', fg='green')
+        except Exception as e:
+            self.sms_gen_status.config(text=f'Export error: {str(e)[:50]}', fg='red')
 
     def _sms_remove(self):
         pid = self._sms_get_selected_pid()
