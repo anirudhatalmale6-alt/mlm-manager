@@ -1645,6 +1645,7 @@ class MLMApp:
             req.add_header('X-API-USERNAME', username)
             req.add_header('X-API-KEY', api_key)
             req.add_header('Content-Type', 'application/json')
+            req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
             with urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode())
             self._tv_token = data.get('token', '')
@@ -1668,6 +1669,7 @@ class MLMApp:
         headers = {
             'Authorization': f'Bearer {token}',
             'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         }
         try:
             if method == 'GET':
