@@ -202,7 +202,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0.31"
+VERSION = "1.0.32"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -1696,30 +1696,29 @@ class MLMApp:
             self.sms_gen_status.config(text=f'{pid} already has number {self.sms_data[pid]["number"]}', fg='orange')
             return
 
-        def do_buy():
-            self.root.after(0, self.sms_gen_status.config, {'text': 'Buying number...', 'fg': 'gray'})
-            area = self.cfg.get('SMS', 'SwAreaCode', fallback='202')
-            resp, err = self._sms_api_request('GET', '/AvailablePhoneNumbers/US/Local.json',
-                                                  {'AreaCode': area, 'SmsEnabled': 'true', 'PageSize': '1'})
+        def do_assign():
+            self.root.after(0, self.sms_gen_status.config, {'text': 'Finding available number...', 'fg': 'gray'})
+            resp, err = self._sms_api_request('GET', '/IncomingPhoneNumbers.json', {'PageSize': '200'})
             if err:
-                self.root.after(0, self.sms_gen_status.config, {'text': f'Search error: {err[:60]}', 'fg': 'red'})
+                self.root.after(0, self.sms_gen_status.config, {'text': f'Error: {err[:60]}', 'fg': 'red'})
                 return
-            numbers = resp.get('available_phone_numbers', [])
-            if not numbers:
+            all_numbers = resp.get('incoming_phone_numbers', [])
+            if not all_numbers:
                 self.root.after(0, self.sms_gen_status.config,
-                                {'text': f'No numbers available in area {area}', 'fg': 'red'})
+                                {'text': 'No numbers in your account. Buy numbers first.', 'fg': 'red'})
                 return
 
-            phone = numbers[0]['phone_number']
-            resp2, err2 = self._sms_api_request('POST', '/IncomingPhoneNumbers.json',
-                                                    {'PhoneNumber': phone})
-            if err2:
+            assigned_numbers = {info['number'] for info in self.sms_data.values()}
+            available = [n for n in all_numbers if n.get('phone_number', '') not in assigned_numbers]
+            if not available:
                 self.root.after(0, self.sms_gen_status.config,
-                                {'text': f'Buy error: {err2[:60]}', 'fg': 'red'})
+                                {'text': f'All {len(all_numbers)} numbers assigned. Buy more.', 'fg': 'red'})
                 return
 
-            number_sid = resp2.get('sid', '')
-            friendly = resp2.get('friendly_name', phone)
+            chosen = available[0]
+            phone = chosen.get('phone_number', '')
+            number_sid = chosen.get('sid', '')
+            friendly = chosen.get('friendly_name', phone)
             self.sms_data[pid] = {
                 'number': phone,
                 'number_sid': number_sid,
@@ -1733,7 +1732,7 @@ class MLMApp:
                             {'text': f'{pid} -> {phone}', 'fg': 'green'})
             self.root.after(0, self.sms_pid_entry.delete, 0, 'end')
 
-        threading.Thread(target=do_buy, daemon=True).start()
+        threading.Thread(target=do_assign, daemon=True).start()
 
     def _sms_refresh_list(self):
         for item in self.sms_tree.get_children():
