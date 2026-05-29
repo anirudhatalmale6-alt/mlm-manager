@@ -1739,26 +1739,35 @@ class MLMApp:
 
         def do_assign():
             self.root.after(0, self.sms_gen_status.config, {'text': 'Finding available number...', 'fg': 'gray'})
-            resp, err = self._tv_api('GET', '/api/pub/v2/reservations/rental/renewable')
-            if err:
-                self.root.after(0, self.sms_gen_status.config, {'text': f'Error: {err[:60]}', 'fg': 'red'})
-                return
-            rentals = resp.get('data', []) if isinstance(resp, dict) else (resp if isinstance(resp, list) else [])
-            active = [r for r in rentals if r.get('state', '').lower() == 'active']
+            all_rentals = []
+            for endpoint in ('/api/pub/v2/reservations/rental/renewable',
+                             '/api/pub/v2/reservations/rental/nonrenewable'):
+                resp, err = self._tv_api('GET', endpoint)
+                if err:
+                    continue
+                items = resp.get('data', []) if isinstance(resp, dict) else (resp if isinstance(resp, list) else [])
+                all_rentals.extend(items)
+            active = [r for r in all_rentals if 'active' in r.get('state', '').lower()]
             if not active:
                 self.root.after(0, self.sms_gen_status.config,
                                 {'text': 'No rental numbers found. Rent numbers first.', 'fg': 'red'})
                 return
 
-            assigned_numbers = {info['number'] for info in self.sms_data.values()}
-            available = [r for r in active if r.get('number', '') not in assigned_numbers]
+            assigned_numbers = set()
+            for info in self.sms_data.values():
+                n = info.get('number', '').replace('+1', '').lstrip('1') if len(info.get('number', '')) > 10 else info.get('number', '')
+                assigned_numbers.add(n)
+                assigned_numbers.add(info.get('number', ''))
+            available = [r for r in active if r.get('number', '') not in assigned_numbers
+                         and '+1' + r.get('number', '') not in assigned_numbers]
             if not available:
                 self.root.after(0, self.sms_gen_status.config,
                                 {'text': f'All {len(active)} numbers assigned. Rent more.', 'fg': 'red'})
                 return
 
             chosen = available[0]
-            phone = chosen.get('number', '')
+            raw_num = chosen.get('number', '')
+            phone = f'+1{raw_num}' if len(raw_num) == 10 and not raw_num.startswith('+') else raw_num
             res_id = chosen.get('id', '')
             self.sms_data[pid] = {
                 'number': phone,
@@ -1900,9 +1909,11 @@ class MLMApp:
         if not info:
             return
         number = info.get('number', '')
-        if not number:
+        res_id = info.get('reservation_id', '')
+        if not number and not res_id:
             return
-        resp, err = self._tv_api('GET', f'/api/pub/v2/sms?to={number}')
+        query = f'reservationId={res_id}' if res_id else f'to={number}'
+        resp, err = self._tv_api('GET', f'/api/pub/v2/sms?{query}')
         if err or not resp:
             return
         messages_raw = resp.get('data', []) if isinstance(resp, dict) else (resp if isinstance(resp, list) else [])
