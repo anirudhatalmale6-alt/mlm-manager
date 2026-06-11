@@ -202,7 +202,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0.33"
+VERSION = "1.0.34"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -220,6 +220,7 @@ GW_OWNER = 4
 WM_CLOSE = 0x0010
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_VM_READ = 0x0010
+PROCESS_TERMINATE = 0x0001
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -567,6 +568,24 @@ def minimize_window(hwnd):
 def close_window(hwnd):
     if HAS_WIN32:
         user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+
+
+def terminate_window_process(hwnd):
+    if not HAS_WIN32:
+        return False
+    try:
+        pid = ctypes.wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value == 0:
+            return False
+        h = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid.value)
+        if h:
+            kernel32.TerminateProcess(h, 0)
+            kernel32.CloseHandle(h)
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def restore_and_resize(hwnd, w, h):
@@ -2451,6 +2470,23 @@ class MLMApp:
                 return
 
         def do_action():
+            if action == 'close':
+                visible = [h for h in hwnds if is_window_visible(h)]
+                for hwnd in visible:
+                    try:
+                        close_window(hwnd)
+                    except Exception:
+                        pass
+                if visible:
+                    time.sleep(0.8)
+                stubborn = [h for h in visible if is_window_visible(h)]
+                for hwnd in stubborn:
+                    try:
+                        terminate_window_process(hwnd)
+                    except Exception:
+                        pass
+                return
+
             for hwnd in hwnds:
                 try:
                     if not is_window_visible(hwnd):
@@ -2462,13 +2498,7 @@ class MLMApp:
                             show_window(hwnd)
                     elif action == 'minimize':
                         minimize_window(hwnd)
-                    elif action == 'close':
-                        close_window(hwnd)
-                        time.sleep(0.5)
-                        if is_window_visible(hwnd):
-                            user32.DestroyWindow(hwnd)
                     elif action == 'refresh':
-                        # AutoIt uses SW_RESTORE for refresh, not maximize
                         if HAS_WIN32:
                             user32.ShowWindow(hwnd, SW_RESTORE)
                             user32.SetForegroundWindow(hwnd)
