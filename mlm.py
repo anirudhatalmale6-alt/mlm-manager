@@ -202,7 +202,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0.35"
+VERSION = "1.0.36"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -1259,6 +1259,7 @@ class MLMApp:
             ('Cols', 'Cols:', '4'), ('Rows', 'Rows:', '2'),
             ('Width', 'Width:', '480'), ('Height', 'Height:', '540'),
             ('GapX', 'Gap X:', '0'), ('GapY', 'Gap Y:', '0'),
+            ('StartX', 'Start X:', '0'), ('StartY', 'Start Y:', '0'),
         ]):
             row, col = divmod(i, 2)
             tk.Label(grid_frame, text=label, font=('', 8)).grid(row=row, column=col*2, sticky='w', padx=4)
@@ -2216,8 +2217,8 @@ class MLMApp:
             count = len(self.tree.get_children())
             self.tree.heading('profile', text=f'Profile ({count})')
 
-            # 4. Re-sort if user has sorted and tree data changed
-            if needs_sort and getattr(self, 'user_sorted', False):
+            # 4. Re-sort only if auto-sorting is enabled and user has sorted
+            if needs_sort and self.opt_autosorting.get() and getattr(self, 'user_sorted', False):
                 self._sort_tree(self.sort_by, toggle=False)
 
             # 5. Update current_pos to match selected item's position
@@ -2524,8 +2525,10 @@ class MLMApp:
             height = int(self.pos_entries.get('Height', tk.Entry()).get() or '540')
             gap_x = int(self.pos_entries.get('GapX', tk.Entry()).get() or '0')
             gap_y = int(self.pos_entries.get('GapY', tk.Entry()).get() or '0')
+            start_x = int(self.pos_entries.get('StartX', tk.Entry()).get() or '0')
+            start_y = int(self.pos_entries.get('StartY', tk.Entry()).get() or '0')
         except (ValueError, TypeError):
-            cols, rows, width, height, gap_x, gap_y = 4, 2, 480, 540, 0, 0
+            cols, rows, width, height, gap_x, gap_y, start_x, start_y = 4, 2, 480, 540, 0, 0, 0, 0
 
         group_size = cols * rows
         hwnds = self._get_all_hwnds()
@@ -2559,15 +2562,19 @@ class MLMApp:
                     minimize_window(hwnd)
             time.sleep(0.1)
 
-            # Step 2: Position group windows in grid using SW_SHOWNORMAL
+            # Step 2: Position group windows in grid on primary monitor
+            screen_w, screen_h = get_screen_size()
             idx = 0
             for i in range(start, end):
                 hwnd = hwnds[i]
                 col = idx % cols
                 row = idx // cols
-                x = col * (width + gap_x)
-                y = row * (height + gap_y)
-                # SW_SHOWNORMAL (1) - show without maximizing
+                x = start_x + col * (width + gap_x)
+                y = start_y + row * (height + gap_y)
+                if x + width > screen_w:
+                    x = max(0, screen_w - width)
+                if y + height > screen_h:
+                    y = max(0, screen_h - height)
                 if HAS_WIN32:
                     user32.ShowWindow(hwnd, SW_SHOWNORMAL)
                     time.sleep(0.05)
@@ -2771,16 +2778,23 @@ class MLMApp:
             height = int(self.pos_entries['Height'].get())
             gap_x = int(self.pos_entries['GapX'].get())
             gap_y = int(self.pos_entries['GapY'].get())
+            start_x = int(self.pos_entries.get('StartX', tk.Entry()).get() or '0')
+            start_y = int(self.pos_entries.get('StartY', tk.Entry()).get() or '0')
         except ValueError:
             return
 
         def do_pos():
+            screen_w, screen_h = get_screen_size()
             hwnds = self._get_all_hwnds()
             for i, hwnd in enumerate(hwnds):
                 col = i % cols
                 row = i // cols
-                x = col * (width + gap_x)
-                y = row * (height + gap_y)
+                x = start_x + col * (width + gap_x)
+                y = start_y + row * (height + gap_y)
+                if x + width > screen_w:
+                    x = max(0, screen_w - width)
+                if y + height > screen_h:
+                    y = max(0, screen_h - height)
                 set_window_pos(hwnd, x, y, width, height)
         threading.Thread(target=do_pos, daemon=True).start()
 
