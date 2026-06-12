@@ -202,7 +202,7 @@ except ImportError:
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-VERSION = "1.0.34"
+VERSION = "1.0.35"
 WINDOW_TITLE = f"MultiloginX Manager v{VERSION} - Dev ChingChing"
 CHROME_CLASS = "Chrome_WidgetWin_1"
 
@@ -912,9 +912,6 @@ class MLMApp:
         self.tl_known_profiles = {}
         self.tl_known_urls = {}
         self.tl_va_name = ''
-        self.sms_data = load_sms_data()
-        self.sms_polling = False
-
         self._build_gui()
         self._load_all_settings()
         self._register_hotkeys()
@@ -955,15 +952,11 @@ class MLMApp:
         self.tab_settings = ttk.Frame(self.notebook)
         self.tab_discord = ttk.Frame(self.notebook)
         self.tab_pos = ttk.Frame(self.notebook)
-        self.tab_timelog = ttk.Frame(self.notebook)
-        self.tab_sms = ttk.Frame(self.notebook)
 
         self.notebook.add(self.tab_main, text='Main')
         self.notebook.add(self.tab_settings, text='Settings')
         self.notebook.add(self.tab_discord, text='Discord')
         self.notebook.add(self.tab_pos, text='Pos')
-        self.notebook.add(self.tab_timelog, text='Time')
-        self.notebook.add(self.tab_sms, text='SMS')
 
         # Hotkeys + On top vars (checkboxes placed in bottom bar)
         self.hotkeys_var = tk.BooleanVar(value=self.cfg.get('MAIN', 'AllHotkeysON') == '1')
@@ -973,8 +966,6 @@ class MLMApp:
         self._build_settings_tab()
         self._build_discord_tab()
         self._build_pos_tab()
-        self._build_timelog_tab()
-        self._build_sms_tab()
         self._build_bottom_bar()
 
         self.root.protocol('WM_DELETE_WINDOW', self._on_close)
